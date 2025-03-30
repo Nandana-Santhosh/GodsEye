@@ -1,0 +1,32 @@
+{
+  "name": "gods-eye",
+  "version": "1.0.0",
+  "description": "Integrated accident monitoring system with frontend, ML and web3 components",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm run install:frontend && npm run install:api && npm run install:web3",
+    "install:frontend": "cd frontend && npm install",
+    "install:api": "cd api && npm install",
+    "install:web3": "cd web3 && npm install",
+    "start:frontend": "cd frontend && npm run dev",
+    "start:api": "cd api && node index.js",
+    "build:frontend": "cd frontend && npm run build",
+    "deploy:web3": "cd web3 && npm run deploy",
+    "dev": "concurrently \"npm run start:api\" \"npm run start:frontend\"",
+    "setup:ml": "pip install -r ml/requirements.txt"
+  },
+  "keywords": [
+    "accident-monitoring",
+    "web3",
+    "ml",
+    "blockchain"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "concurrently": "^8.2.2",
+    "ethers": "^5.8.0",
+    "hardhat": "^2.22.19"
+  }
+}

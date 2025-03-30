@@ -1,7 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import AdminDashboard from './components/AdminDashboard';
 import AnonymousReport from './components/AnonymousReport';
+import AdminLogin from './components/AdminLogin';
+import AdminDashboard from './components/AdminDashboard';
+import Home from './components/Home';
 
 function App() {
   return (
@@ -13,18 +15,23 @@ function App() {
               Accident Monitoring System
             </Link>
             <div className="space-x-4">
-              <Link to="/admin" className="hover:text-blue-200">
-                Admin Dashboard
-              </Link>
               <Link to="/" className="hover:text-blue-200">
+                Home
+              </Link>
+              <Link to="/report" className="hover:text-blue-200">
                 Report Accident
+              </Link>
+              <Link to="/admin/login" className="hover:text-blue-200">
+                Admin Login
               </Link>
             </div>
           </div>
         </nav>
         <Routes>
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/" element={<AnonymousReport />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/report" element={<AnonymousReport />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
         </Routes>
       </div>
     </Router>

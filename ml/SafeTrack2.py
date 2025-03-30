@@ -10,6 +10,9 @@ import base64
 import requests
 import random
 import numpy as np
+import json
+import argparse
+import sys
 
 from typing import List, Dict, Any
 from geopy.geocoders import Nominatim
@@ -432,6 +435,43 @@ class AccidentDetectionSystem:
         cap.release()
         cv2.destroyAllWindows()
 
+    def analyze_single_image(self, image_path: str) -> Dict[str, Any]:
+        """
+        Analyze a single image and return whether it contains an accident
+        
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            Dictionary with detection results
+        """
+        try:
+            # Load and preprocess the image
+            img = load_img(image_path, target_size=(224, 224))
+            img_array = img_to_array(img)
+            img_array = np.expand_dims(img_array, axis=0)
+            img_array = preprocess_input(img_array)
+            
+            # Make prediction
+            if self.model is None:
+                self.load_or_create_model()
+                
+            prediction = self.model.predict(img_array)
+            confidence = float(prediction[0][0])
+            is_accident = confidence > 0.5
+            
+            return {
+                "is_accident": bool(is_accident),
+                "confidence": confidence
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing image {image_path}: {str(e)}")
+            return {
+                "is_accident": False,
+                "confidence": 0.0,
+                "error": str(e)
+            }
+
 def main():
     
     # Create a custom mapping (optional)
@@ -463,4 +503,31 @@ def main():
     accident_system.detect_accidents('Accident-2.mp4')
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Accident Detection System')
+    parser.add_argument('--initialize', action='store_true', help='Initialize and load the ML model')
+    parser.add_argument('--analyze-image', type=str, help='Path to image file to analyze')
+    
+    args = parser.parse_args()
+    
+    # Create a camera to video mapper
+    mapping_config = {}
+    camera_mapper = CameraVideoMapper(mapping_config)
+    
+    # Create the accident detection system
+    accident_system = AccidentDetectionSystem(camera_mapper)
+    
+    if args.initialize:
+        # Just initialize the model and exit
+        accident_system.load_or_create_model()
+        sys.exit(0)
+        
+    elif args.analyze_image:
+        # Analyze a single image
+        result = accident_system.analyze_single_image(args.analyze_image)
+        # Print the result as JSON to stdout
+        print(json.dumps(result))
+        sys.exit(0)
+        
+    else:
+        # Run the main function if no specific command is provided
+        main()

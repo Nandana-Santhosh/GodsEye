@@ -1,11 +1,18 @@
 require("@matterlabs/hardhat-zksync-solc");
+require("@nomiclabs/hardhat-ethers");
 require('dotenv').config()
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
-  defaultNetwork: "mumbai",
+  defaultNetwork: "localhost",
   networks: {
-    hardhat: {},
+    hardhat: {
+      chainId: 31337,
+    },
+    localhost: {
+      url: "http://127.0.0.1:8545/",
+      chainId: 31337,
+    },
     mumbai: {
       url: 'https://rpc.ankr.com/polygon_mumbai',
       accounts: [`0x${process.env.PRIVATE_KEY}`],
@@ -18,8 +25,8 @@ module.exports = {
     },
   },
   paths: {
-    artifacts: "./artifacts-zk",
-    cache: "./cache-zk",
+    artifacts: "./artifacts",
+    cache: "./cache",
     sources: "./contracts",
     tests: "./test",
   },
