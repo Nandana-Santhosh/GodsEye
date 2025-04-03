@@ -11,6 +11,15 @@ import { useNavigate, Link } from 'react-router-dom';
 
 const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
 
+interface LocalReport {
+  id: string;
+  location: string;
+  description: string;
+  image: File | null;
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 interface BlockchainAccident {
   id: number;
   location: string;
@@ -32,7 +41,8 @@ const AdminDashboard: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [account, setAccount] = useState<string>('');
   const [contract, setContract] = useState<ethers.Contract | null>(null);
-  const [accidents, setAccidents] = useState<BlockchainAccident[]>([]);
+  const [localReports, setLocalReports] = useState<LocalReport[]>([]);
+  const [blockchainAccidents, setBlockchainAccidents] = useState<BlockchainAccident[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [success, setSuccess] = useState<string>('');
@@ -60,7 +70,26 @@ const AdminDashboard: React.FC = () => {
     }
   }, [navigate]);
 
-  // Listen for all accident events
+  // Load local reports
+  useEffect(() => {
+    const loadLocalReports = () => {
+      const reports = JSON.parse(localStorage.getItem('pendingReports') || '[]');
+      // Filter out test data (IDs 1-5)
+      const filteredReports = reports.filter((report: LocalReport) => 
+        !['1', '2', '3', '4', '5'].includes(report.id)
+      );
+      setLocalReports(filteredReports);
+      // Update localStorage with filtered data
+      localStorage.setItem('pendingReports', JSON.stringify(filteredReports));
+    };
+
+    loadLocalReports();
+    // Set up interval to check for new reports
+    const interval = setInterval(loadLocalReports, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for blockchain events
   useEffect(() => {
     if (contract) {
       const accidentReportedFilter = contract.filters.AccidentReported();
@@ -68,9 +97,9 @@ const AdminDashboard: React.FC = () => {
       const accidentRejectedFilter = contract.filters.AccidentRejected();
       
       const handleAccidentReported = async () => {
-        console.log('New accident reported!');
-        setSuccess('New accident report detected!');
-        await loadAccidents(contract);
+        console.log('New accident reported on blockchain!');
+        setSuccess('New accident report detected on blockchain!');
+        await loadBlockchainAccidents(contract);
         if (activeTab === 'statistics') {
           await loadStatistics(contract);
         }
@@ -78,9 +107,9 @@ const AdminDashboard: React.FC = () => {
       };
       
       const handleAccidentApproved = async () => {
-        console.log('Accident approved!');
-        setSuccess('An accident report has been approved!');
-        await loadAccidents(contract);
+        console.log('Accident approved on blockchain!');
+        setSuccess('An accident report has been approved on blockchain!');
+        await loadBlockchainAccidents(contract);
         if (activeTab === 'statistics') {
           await loadStatistics(contract);
         }
@@ -88,9 +117,9 @@ const AdminDashboard: React.FC = () => {
       };
       
       const handleAccidentRejected = async () => {
-        console.log('Accident rejected!');
-        setSuccess('An accident report has been rejected!');
-        await loadAccidents(contract);
+        console.log('Accident rejected on blockchain!');
+        setSuccess('An accident report has been rejected on blockchain!');
+        await loadBlockchainAccidents(contract);
         if (activeTab === 'statistics') {
           await loadStatistics(contract);
         }
@@ -101,26 +130,13 @@ const AdminDashboard: React.FC = () => {
       contract.on(accidentApprovedFilter, handleAccidentApproved);
       contract.on(accidentRejectedFilter, handleAccidentRejected);
       
-      // Auto-refresh every 30 seconds
-      const interval = setInterval(() => {
-        setRefreshCounter(prev => prev + 1);
-      }, 30000);
-      
       return () => {
         contract.off(accidentReportedFilter, handleAccidentReported);
         contract.off(accidentApprovedFilter, handleAccidentApproved);
         contract.off(accidentRejectedFilter, handleAccidentRejected);
-        clearInterval(interval);
       };
     }
   }, [contract, activeTab]);
-  
-  // Reload accidents when refreshCounter changes
-  useEffect(() => {
-    if (contract) {
-      loadAccidents(contract);
-    }
-  }, [refreshCounter]);
 
   useEffect(() => {
     connectWallet();
@@ -149,9 +165,9 @@ const AdminDashboard: React.FC = () => {
       const contract = new ethers.Contract(CONTRACT_ADDRESS, DeAcc.abi, signer);
       setContract(contract);
 
-      // Load accidents
-      console.log("Loading accidents...");
-      await loadAccidents(contract);
+      // Load blockchain accidents
+      console.log("Loading blockchain accidents...");
+      await loadBlockchainAccidents(contract);
     } catch (error: any) {
       console.error('Error connecting wallet:', error);
       setError('Failed to connect wallet. Please try again.');
@@ -159,10 +175,10 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const loadAccidents = async (contractInstance: ethers.Contract) => {
+  const loadBlockchainAccidents = async (contractInstance: ethers.Contract) => {
     try {
       setLoading(true);
-      console.log("Loading accidents from contract...");
+      console.log("Loading accidents from blockchain...");
       
       // Get accident count
       const count = await contractInstance.accidentCount();
@@ -171,6 +187,11 @@ const AdminDashboard: React.FC = () => {
       // Load all accidents
       const accidentsData: BlockchainAccident[] = [];
       for (let i = 1; i <= count; i++) {
+        // Skip test data IDs
+        if (['1', '2', '3', '4', '5'].includes(i.toString())) {
+          continue;
+        }
+        
         console.log(`Fetching accident #${i}...`);
         const accident = await contractInstance.getAccident(i);
         console.log("Accident data:", accident);
@@ -189,7 +210,7 @@ const AdminDashboard: React.FC = () => {
       // Sort by timestamp (newest first)
       accidentsData.sort((a, b) => b.timestamp - a.timestamp);
       console.log("Processed accidents:", accidentsData);
-      setAccidents(accidentsData);
+      setBlockchainAccidents(accidentsData);
     } catch (error: any) {
       console.error('Error loading accidents:', error);
       setError('Failed to load accident reports from blockchain');
@@ -198,58 +219,117 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const approveAccident = async (accidentId: number) => {
+  const approveAccident = async (reportId: string) => {
     try {
-      if (!contract) return;
-      
+      if (!contract) {
+        setError('Please connect MetaMask to approve reports');
+        return;
+      }
+
+      // Check if connected to the correct network
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const network = await provider.getNetwork();
+      if (network.chainId !== 31337) { // Hardhat network chain ID
+        setError('Please switch to Localhost network in MetaMask');
+        return;
+      }
+
       setLoading(true);
       setError('');
       setSuccess('');
       
-      console.log(`Approving accident #${accidentId}...`);
-      const tx = await contract.approveAccident(accidentId);
+      // Find the report in local storage
+      const reports = JSON.parse(localStorage.getItem('pendingReports') || '[]');
+      const report = reports.find((r: LocalReport) => r.id === reportId);
       
-      console.log(`Approval transaction sent: ${tx.hash}`);
-      setSuccess(`Approving accident #${accidentId}. Transaction sent!`);
+      if (!report) {
+        setLocalReports(prevReports => prevReports.filter(r => r.id !== reportId));
+        setBlockchainAccidents(prevAccidents => prevAccidents.filter(a => a.id.toString() !== reportId));
+        throw new Error('Report not found');
+      }
+
+      // Upload to blockchain
+      const imageHash = report.image ? `image_${report.id}` : 'no_image';
+      console.log(`Approving accident #${reportId}...`);
       
-      await tx.wait();
-      console.log(`Approval transaction confirmed for accident #${accidentId}`);
-      
-      setSuccess(`Accident #${accidentId} has been approved successfully!`);
-      
-      // Reload the accidents after approval
-      await loadAccidents(contract);
-      
-      // Clear success message after 5 seconds
-      setTimeout(() => setSuccess(''), 5000);
+      try {
+        // Get the current gas price
+        const gasPrice = await provider.getGasPrice();
+        console.log('Current gas price:', gasPrice.toString());
+
+        // Estimate gas for the transaction
+        const gasEstimate = await contract.estimateGas.reportAccident(
+          report.location,
+          report.description,
+          imageHash
+        );
+        console.log('Gas estimate:', gasEstimate.toString());
+
+        // Send transaction with higher gas limit and current gas price
+        const tx = await contract.reportAccident(
+          report.location,
+          report.description,
+          imageHash,
+          {
+            gasLimit: gasEstimate.mul(2), // Double the estimated gas
+            gasPrice: gasPrice.mul(2) // Double the current gas price
+          }
+        );
+        
+        console.log(`Approval transaction sent: ${tx.hash}`);
+        setSuccess(`Approving accident #${reportId}. Transaction sent!`);
+        
+        // Wait for transaction to be mined
+        const receipt = await tx.wait();
+        console.log(`Approval transaction confirmed for accident #${reportId}`, receipt);
+        
+        // Update local storage
+        const updatedReports = reports.map((r: LocalReport) => 
+          r.id === reportId ? { ...r, status: 'approved' } : r
+        );
+        localStorage.setItem('pendingReports', JSON.stringify(updatedReports));
+        setLocalReports(updatedReports);
+        
+        setSuccess(`Accident #${reportId} has been approved successfully!`);
+        
+        // Reload the blockchain accidents after approval
+        await loadBlockchainAccidents(contract);
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setSuccess(''), 5000);
+      } catch (error: any) {
+        console.error('Transaction error:', error);
+        if (error.code === 'INSUFFICIENT_FUNDS') {
+          setError('Insufficient funds for gas. Please add more ETH to your account.');
+        } else if (error.code === 'NETWORK_ERROR') {
+          setError('Network error. Please check your connection and try again.');
+        } else {
+          setError(`Transaction failed: ${error.message}`);
+        }
+      }
     } catch (error: any) {
       console.error('Error approving accident:', error);
       setError(`Failed to approve accident: ${error.message}`);
+    } finally {
       setLoading(false);
     }
   };
 
-  const rejectAccident = async (accidentId: number) => {
+  const rejectAccident = async (reportId: string) => {
     try {
-      if (!contract) return;
-      
       setLoading(true);
       setError('');
       setSuccess('');
       
-      console.log(`Rejecting accident #${accidentId}...`);
-      const tx = await contract.rejectAccident(accidentId);
+      // Update local storage
+      const reports = JSON.parse(localStorage.getItem('pendingReports') || '[]');
+      const updatedReports = reports.map((r: LocalReport) => 
+        r.id === reportId ? { ...r, status: 'rejected' } : r
+      );
+      localStorage.setItem('pendingReports', JSON.stringify(updatedReports));
+      setLocalReports(updatedReports);
       
-      console.log(`Rejection transaction sent: ${tx.hash}`);
-      setSuccess(`Rejecting accident #${accidentId}. Transaction sent!`);
-      
-      await tx.wait();
-      console.log(`Rejection transaction confirmed for accident #${accidentId}`);
-      
-      setSuccess(`Accident #${accidentId} has been rejected successfully!`);
-      
-      // Reload the accidents after rejection
-      await loadAccidents(contract);
+      setSuccess(`Accident #${reportId} has been rejected successfully!`);
       
       // Clear success message after 5 seconds
       setTimeout(() => setSuccess(''), 5000);
@@ -263,7 +343,7 @@ const AdminDashboard: React.FC = () => {
   const handleManualRefresh = async () => {
     if (contract) {
       setSuccess('Refreshing data...');
-      await loadAccidents(contract);
+      await loadBlockchainAccidents(contract);
       if (activeTab === 'statistics') {
         await loadStatistics(contract);
       }
@@ -309,14 +389,14 @@ const AdminDashboard: React.FC = () => {
       // Update the stats data
       setStatsData({
         total: totalCount.toNumber(),
-        verified: approvedCount.toNumber(), // Renamed for compatibility with existing Stats component
-        pending: pendingCount.toNumber(),
+        verified: approvedCount.toNumber(),
+        pending: pendingCount.toNumber() + localReports.length,
         rejected: rejectedCount.toNumber(),
         byLocation: locationData,
         byTimeOfDay: {
-          'Morning': 0,   // These could be calculated based on timestamp if needed
+          'Morning': 0,
           'Afternoon': 0,
-          'Evening': 0, 
+          'Evening': 0,
           'Night': 0
         }
       });
@@ -331,7 +411,32 @@ const AdminDashboard: React.FC = () => {
     if (activeTab === 'statistics' && contract) {
       loadStatistics(contract);
     }
-  }, [activeTab, contract, refreshCounter]);
+  }, [activeTab, contract, refreshCounter, localReports]);
+
+  const clearTestData = () => {
+    try {
+      // Clear specific test IDs from local storage
+      const reports = JSON.parse(localStorage.getItem('pendingReports') || '[]');
+      const filteredReports = reports.filter((report: LocalReport) => 
+        !['1', '2', '3', '4', '5'].includes(report.id)
+      );
+      localStorage.setItem('pendingReports', JSON.stringify(filteredReports));
+      setLocalReports(filteredReports);
+      
+      // Update blockchain accidents state to remove test entries
+      setBlockchainAccidents(prevAccidents => 
+        prevAccidents.filter(accident => 
+          !['1', '2', '3', '4', '5'].includes(accident.id.toString())
+        )
+      );
+      
+      setSuccess('Test data has been cleared successfully!');
+      setTimeout(() => setSuccess(''), 5000);
+    } catch (error: any) {
+      console.error('Error clearing test data:', error);
+      setError('Failed to clear test data');
+    }
+  };
 
   if (!account) {
     return (
@@ -372,6 +477,12 @@ const AdminDashboard: React.FC = () => {
               disabled={loading}
             >
               {loading ? 'Refreshing...' : 'Refresh Data'}
+            </button>
+            <button
+              onClick={clearTestData}
+              className="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded"
+            >
+              Clear Test Data
             </button>
             <button
               onClick={handleLogout}
@@ -453,23 +564,23 @@ const AdminDashboard: React.FC = () => {
           <div>
             <div className="mb-4">
               <p className="text-gray-700">
-                Total Reports: <span className="font-bold">{accidents.length}</span>
-                {accidents.length > 0 && (
+                Total Reports: <span className="font-bold">{blockchainAccidents.length + localReports.length}</span>
+                {blockchainAccidents.length + localReports.length > 0 && (
                   <>
                     <span className="mx-2">|</span>
-                    Approved: <span className="font-bold">{accidents.filter(a => a.status === 1).length}</span>
+                    Approved: <span className="font-bold">{blockchainAccidents.filter(a => a.status === 1).length}</span>
                     <span className="mx-2">|</span>
-                    Rejected: <span className="font-bold">{accidents.filter(a => a.status === 2).length}</span>
+                    Rejected: <span className="font-bold">{blockchainAccidents.filter(a => a.status === 2).length + localReports.filter(r => r.status === 'rejected').length}</span>
                     <span className="mx-2">|</span>
                     Pending: <span className="font-bold">
-                      {accidents.filter(a => a.status === 0).length}
+                      {localReports.filter(r => r.status === 'pending').length}
                     </span>
                   </>
                 )}
               </p>
             </div>
           
-            {accidents.length === 0 && !loading ? (
+            {localReports.length === 0 && blockchainAccidents.length === 0 && !loading ? (
               <div className="text-center py-8">
                 <p className="text-gray-500">No accident reports found.</p>
                 <button 
@@ -489,19 +600,62 @@ const AdminDashboard: React.FC = () => {
                       <th className="py-2 px-4 border-b">Description</th>
                       <th className="py-2 px-4 border-b">Date/Time</th>
                       <th className="py-2 px-4 border-b">Status</th>
-                      <th className="py-2 px-4 border-b">Reporter</th>
-                      <th className="py-2 px-4 border-b">Image</th>
                       <th className="py-2 px-4 border-b">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {accidents.map((accident) => (
+                    {localReports.map((report) => (
+                      <tr key={report.id}>
+                        <td className="py-2 px-4 border-b">{report.id}</td>
+                        <td className="py-2 px-4 border-b">{report.location}</td>
+                        <td className="py-2 px-4 border-b">{report.description}</td>
+                        <td className="py-2 px-4 border-b">
+                          {formatDate(report.timestamp)}
+                        </td>
+                        <td className="py-2 px-4 border-b">
+                          {report.status === 'approved' ? (
+                            <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                              Approved
+                            </span>
+                          ) : report.status === 'rejected' ? (
+                            <span className="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs">
+                              Rejected
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs">
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 px-4 border-b">
+                          {report.status === 'pending' && (
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => approveAccident(report.id)}
+                                className="bg-green-500 hover:bg-green-700 text-white text-xs py-1 px-2 rounded"
+                                disabled={loading}
+                              >
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => rejectAccident(report.id)}
+                                className="bg-red-500 hover:bg-red-700 text-white text-xs py-1 px-2 rounded"
+                                disabled={loading}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {blockchainAccidents.map((accident) => (
                       <tr key={accident.id}>
                         <td className="py-2 px-4 border-b">{accident.id}</td>
                         <td className="py-2 px-4 border-b">{accident.location}</td>
                         <td className="py-2 px-4 border-b">{accident.description}</td>
                         <td className="py-2 px-4 border-b">
-                          {new Date(accident.timestamp * 1000).toLocaleString()}
+                          {formatDate(accident.timestamp)}
                         </td>
                         <td className="py-2 px-4 border-b">
                           {accident.status === 1 ? (
@@ -519,34 +673,17 @@ const AdminDashboard: React.FC = () => {
                           )}
                         </td>
                         <td className="py-2 px-4 border-b">
-                          <span className="text-xs font-mono">
-                            {accident.reporter.substring(0, 6)}...{accident.reporter.substring(38)}
-                          </span>
-                        </td>
-                        <td className="py-2 px-4 border-b">
-                          {accident.imageHash && (
-                            <a
-                              href={`https://ipfs.io/ipfs/${accident.imageHash}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-500 hover:underline"
-                            >
-                              View Image
-                            </a>
-                          )}
-                        </td>
-                        <td className="py-2 px-4 border-b">
                           {accident.status === 0 && (
                             <div className="flex space-x-2">
                               <button
-                                onClick={() => approveAccident(accident.id)}
+                                onClick={() => approveAccident(accident.id.toString())}
                                 className="bg-green-500 hover:bg-green-700 text-white text-xs py-1 px-2 rounded"
                                 disabled={loading}
                               >
                                 Approve
                               </button>
                               <button
-                                onClick={() => rejectAccident(accident.id)}
+                                onClick={() => rejectAccident(accident.id.toString())}
                                 className="bg-red-500 hover:bg-red-700 text-white text-xs py-1 px-2 rounded"
                                 disabled={loading}
                               >
