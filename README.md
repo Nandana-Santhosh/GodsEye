@@ -1,12 +1,13 @@
 # GodsEye - Accident Detection and Reporting System
 
-This project combines ML-based accident detection with blockchain-based reporting.
+This project combines ML-based accident detection with blockchain-based reporting and real-time notification.
 
 ## System Components
 
-1. **ML Component**: Convolutional Neural Network for detecting accidents from images
+1. **ML Component**: YOLOv8-based accident detection for video streams
 2. **Blockchain Component**: Ethereum smart contract for immutable accident reporting
-3. **Frontend**: React-based UI for interaction with the system
+3. **Frontend**: React-based UI with real-time accident notifications
+4. **Notification System**: Socket.IO-based real-time alerts
 
 ## Setup Instructions
 
@@ -24,73 +25,126 @@ git clone https://github.com/yourusername/GodsEye.git
 cd GodsEye
 ```
 
-#### 2. Install Web3 dependencies
+#### 2. Install ML dependencies
 ```bash
-cd web3
-npm install
-```
-
-#### 3. Install ML dependencies
-```bash
-cd ../ml
+cd ml2
 pip install -r requirements.txt
 ```
 
-#### 4. Install Frontend dependencies
+#### 3. Install Frontend dependencies
 ```bash
 cd ../frontend
 npm install
 ```
 
-### Running the Application
+### Running the Integrated Accident Detection System
 
-#### 1. Start the Blockchain (Hardhat node)
+#### 1. Start the Frontend Notification Server
 ```bash
-cd web3
-npx hardhat node
+cd frontend
+npm run start:server
 ```
+This will start the server on port 5000, which will receive and distribute accident notifications.
 
-#### 2. Deploy the Smart Contract
+#### 2. Start the ML Detection System
 Open a new terminal and run:
 ```bash
-cd web3
-npx hardhat run scripts/deploy.js --network localhost
+cd ml2
+python accident_detection.py --dashboard-url http://localhost:5000 --display
 ```
-Note: The contract will be deployed to: `0x5FbDB2315678afecb367f032d93F642f64180aa3`
+Options:
+- `--dashboard-url`: URL of the frontend notification server (default: http://localhost:5000)
+- `--display`: Show video feeds with accident detection
+- `--video-dir`: Directory containing video files to process (default: "videos")
+- `--snapshot-dir`: Directory to save accident snapshots (default: "AccSnaps")
+- `--threshold`: Confidence threshold for accident detection (default: 0.5)
 
-#### 3. Start the ML API
-Open a new terminal and run:
+#### 3. Start the API Server (Optional)
+If you want to use the API for integration with other systems:
 ```bash
-cd ml
-python app.py
+cd ml2
+python accident_api.py
 ```
+The API will run on port 5001.
 
-#### 4. Start the Frontend
+#### 4. Start the Frontend Application
 Open a new terminal and run:
 ```bash
 cd frontend
 npm run dev
 ```
+The frontend will be accessible at http://localhost:5173
 
-#### 5. Set up MetaMask
-1. Install the MetaMask browser extension if you haven't already
-2. Add a new network with these settings:
-   - Network Name: Hardhat Local
-   - New RPC URL: http://127.0.0.1:8545
-   - Chain ID: 31337
-   - Currency Symbol: ETH
-3. Import a test account using one of these private keys:
+### Using the System for Presentation
+
+For the presentation setup across two laptops:
+
+1. **Frontend Laptop**: Run the notification server and frontend application
+   ```bash
+   # Run the combined frontend startup script
+   ./start_frontend.bat
    ```
-   0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-   0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+   
+   This will start both the notification server (port 5000) and the frontend (port 5173).
+
+2. **Find your Frontend Laptop's IP Address**
+   ```bash
+   # Windows
+   ipconfig
+   
+   # Look for IPv4 Address under your active network adapter
+   # Example: 192.168.1.105
    ```
 
-### Using the Application
+3. **ML Laptop**: Run the ML detection system with the dashboard URL pointing to the Frontend Laptop
+   ```bash
+   cd ml2
+   python accident_detection.py --dashboard-url http://<frontend-laptop-ip>:5000 --display
+   ```
+   
+   Replace `<frontend-laptop-ip>` with the IP address from step 2 (e.g., http://192.168.1.105:5000)
 
-1. Open your browser and go to: `http://localhost:5173`
-2. Connect your MetaMask wallet to the application
-3. Upload an image to detect accidents
-4. If an accident is detected, it will be recorded on the blockchain
+4. **Access the Dashboard**: On the Frontend Laptop, open a browser and navigate to:
+   ```
+   http://127.0.0.1:5173
+   ```
+
+### Network Configuration
+
+Important configuration notes:
+
+1. **Same Network**: Ensure both laptops are on the same network (WiFi or LAN)
+2. **Firewall Settings**: Make sure Windows Firewall allows incoming connections on ports 5000 and 5173
+   - Control Panel → System and Security → Windows Defender Firewall → Advanced Settings
+   - Add inbound rules for TCP ports 5000 and 5173
+3. **API Connection**: The ML system sends accident data to the notification server (port 5000)
+4. **Testing Connection**: You can test connectivity between laptops by running:
+   ```bash
+   # On ML Laptop
+   ping <frontend-laptop-ip>
+   ```
+   
+If you encounter connection issues:
+- Verify both laptops are on the same network
+- Temporarily disable firewalls for testing
+- Check that the server is listening on all interfaces (0.0.0.0) instead of just localhost
+
+## Real-Time Notification System
+
+The system includes:
+
+1. **Socket.IO Server**: Handles real-time accident notification distribution
+2. **Notification Service**: Frontend service that connects to the Socket.IO server
+3. **Notification Panel**: UI component that displays accident notifications in real-time
+4. **ML Integration**: Detection system sends accident data to the notification server
+
+### How Notifications Work
+
+1. The ML system detects an accident in a video stream
+2. It captures a snapshot and sends data to the notification server
+3. The server processes the data and broadcasts it to all connected clients
+4. The frontend receives the notification and displays it in the NotificationPanel
+5. Users can click on notifications to view accident details
 
 ## System Architecture
 

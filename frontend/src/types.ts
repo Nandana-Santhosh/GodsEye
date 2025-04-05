@@ -7,7 +7,7 @@ export interface Accident {
     address: string;
   };
   images: string[];
-  status: 'pending' | 'verified' | 'rejected';
+  status: 'pending' | 'acknowledged' | 'resolved' | 'rejected';
   source: 'camera' | 'anonymous';
   description?: string;
 }

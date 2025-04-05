@@ -1,0 +1,6 @@
+Running in development mode, static files served by Vite
+Serving accident snapshots from: C:\Users\mrudu\Documents\GitHub\GodsEye\ml2\AccSnaps
+Accident notification server listening on port 5000
+Access the server at http://127.0.0.1:5000
+For presentation, access the frontend at http://127.0.0.1:5173
+^C
