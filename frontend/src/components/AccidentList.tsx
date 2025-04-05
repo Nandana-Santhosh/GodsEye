@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X, Ambulance, Flame } from 'lucide-react';
 import { Accident } from '../types';
+import { toast } from 'react-hot-toast';
+
 
 interface AccidentListProps {
   accidents: Accident[];
@@ -14,6 +16,8 @@ const AccidentList: React.FC<AccidentListProps> = ({
   onResolve 
 }) => {
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [dispatchingAmbulance, setDispatchingAmbulance] = useState<string | null>(null);
+  const [dispatchingFireforce, setDispatchingFireforce] = useState<string | null>(null);
   
   const getStatusIcon = (status: Accident['status']) => {
     switch (status) {
@@ -57,11 +61,106 @@ const AccidentList: React.FC<AccidentListProps> = ({
       return imagePath;
     }
     
+    // Use the backend server URL for images
+    const backendUrl = 'http://127.0.0.1:5000';
+    
     // Handle paths that might start with / or without
     if (imagePath.startsWith('/')) {
-      return imagePath;
+      return `${backendUrl}${imagePath}`;
     } else {
-      return `/${imagePath}`;
+      return `${backendUrl}/${imagePath}`;
+    }
+  };
+
+  // Function to dispatch ambulance using Twilio
+  const dispatchAmbulance = async (accident: Accident) => {
+    setDispatchingAmbulance(accident.id);
+    try {
+      // Configuration flag - set to false to use simulation, true to use real Twilio API
+      const USE_REAL_TWILIO = true; // Toggle this when ready to use real API
+      
+      if (USE_REAL_TWILIO) {
+        // Real Twilio API integration
+        const response = await fetch('http://127.0.0.1:5000/api/dispatch/ambulance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accidentId: accident.id,
+            location: accident.location,
+            timestamp: accident.timestamp,
+            message: `EMERGENCY: Accident reported at ${accident.location.address}. Ambulance required urgently. Coordinates: ${accident.location.lat},${accident.location.lng}`,
+            // You can add more fields as needed for your Twilio configuration
+            // recipientPhone: "+1234567890" // Uncomment and set when using real API
+          })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          toast.success(`Ambulance dispatched to ${accident.location.address}`);
+        } else {
+          throw new Error(data.message || 'Failed to dispatch ambulance');
+        }
+      } else {
+        // Simulation mode
+        console.log('SIMULATION MODE: Dispatching ambulance to:', accident.location);
+        console.log('Would send SMS with Twilio to emergency services with message:');
+        console.log(`EMERGENCY: Accident reported at ${accident.location.address}. Ambulance required urgently. Coordinates: ${accident.location.lat},${accident.location.lng}`);
+        
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        toast.success(`Ambulance dispatched to ${accident.location.address}`);
+      }
+    } catch (error) {
+      console.error('Error dispatching ambulance:', error);
+      toast.error('Failed to dispatch ambulance. Please try again.');
+    } finally {
+      setDispatchingAmbulance(null);
+    }
+  };
+
+  // Function to dispatch fire force using Twilio
+  const dispatchFireforce = async (accident: Accident) => {
+    setDispatchingFireforce(accident.id);
+    try {
+      // Configuration flag - set to false to use simulation, true to use real Twilio API
+      const USE_REAL_TWILIO = true; // Toggle this when ready to use real API
+      
+      if (USE_REAL_TWILIO) {
+        // Real Twilio API integration
+        const response = await fetch('http://127.0.0.1:5000/api/dispatch/fireforce', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accidentId: accident.id,
+            location: accident.location,
+            timestamp: accident.timestamp,
+            message: `EMERGENCY: Fire hazard/accident reported at ${accident.location.address}. Fire response team required urgently. Coordinates: ${accident.location.lat},${accident.location.lng}`,
+            // You can add more fields as needed for your Twilio configuration
+            // recipientPhone: "+1234567890" // Uncomment and set when using real API
+          })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          toast.success(`Fire force dispatched to ${accident.location.address}`);
+        } else {
+          throw new Error(data.message || 'Failed to dispatch fire force');
+        }
+      } else {
+        // Simulation mode
+        console.log('SIMULATION MODE: Dispatching fire force to:', accident.location);
+        console.log('Would send SMS with Twilio to emergency services with message:');
+        console.log(`EMERGENCY: Fire hazard/accident reported at ${accident.location.address}. Fire response team required urgently. Coordinates: ${accident.location.lat},${accident.location.lng}`);
+        
+        // Simulate API delay
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        toast.success(`Fire force dispatched to ${accident.location.address}`);
+      }
+    } catch (error) {
+      console.error('Error dispatching fire force:', error);
+      toast.error('Failed to dispatch fire force. Please try again.');
+    } finally {
+      setDispatchingFireforce(null);
     }
   };
 
@@ -132,6 +231,43 @@ const AccidentList: React.FC<AccidentListProps> = ({
               </div>
               
               <div className="flex space-x-2">
+                {/* Emergency dispatch buttons */}
+                <button 
+                  onClick={() => dispatchAmbulance(accident)}
+                  disabled={dispatchingAmbulance === accident.id}
+                  className="px-3 py-1 bg-blue-100 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-200 flex items-center"
+                >
+                  {dispatchingAmbulance === accident.id ? (
+                    <span className="flex items-center">
+                      <span className="animate-spin h-3 w-3 border-2 border-blue-700 rounded-full border-t-transparent mr-1"></span>
+                      Dispatching...
+                    </span>
+                  ) : (
+                    <>
+                      <Ambulance size={14} className="mr-1" />
+                      Ambulance
+                    </>
+                  )}
+                </button>
+                
+                <button 
+                  onClick={() => dispatchFireforce(accident)}
+                  disabled={dispatchingFireforce === accident.id}
+                  className="px-3 py-1 bg-red-100 text-red-700 rounded-md text-sm font-medium hover:bg-red-200 flex items-center"
+                >
+                  {dispatchingFireforce === accident.id ? (
+                    <span className="flex items-center">
+                      <span className="animate-spin h-3 w-3 border-2 border-red-700 rounded-full border-t-transparent mr-1"></span>
+                      Dispatching...
+                    </span>
+                  ) : (
+                    <>
+                      <Flame size={14} className="mr-1" />
+                      Fire Force
+                    </>
+                  )}
+                </button>
+                
                 {/* Show appropriate action buttons based on status */}
                 {accident.status === 'pending' && onAcknowledge && (
                   <button 

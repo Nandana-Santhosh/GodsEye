@@ -5,6 +5,8 @@ import { Accident } from '../types';
 type AccidentEvents = {
   'new-accident': (accident: Accident) => void;
   'accident-history': (accidents: Accident[]) => void;
+  'accident-updated': (accident: Accident) => void;
+  'camera-status-update': (data: any) => void;
 };
 
 class AccidentNotificationService {
@@ -16,8 +18,8 @@ class AccidentNotificationService {
   private retryInterval: number = 5000; // 5 seconds
 
   constructor(serverUrl: string = '') {
-    // If no serverUrl provided, use the same origin (relative path)
-    this.serverUrl = serverUrl || window.location.origin;
+    // Always use port 5000 for backend API and Socket.IO
+    this.serverUrl = 'http://127.0.0.1:5000';
     console.log(`Notification service initialized with server URL: ${this.serverUrl}`);
   }
 
@@ -37,12 +39,15 @@ class AccidentNotificationService {
         this.socket = null;
       }
       
-      // Create new connection
+      // Create new connection with more reliable configuration
       this.socket = io(this.serverUrl, {
         reconnectionAttempts: this.maxRetries,
         reconnectionDelay: this.retryInterval,
-        transports: ['websocket', 'polling'],
-        path: '/socket.io'
+        timeout: 10000, // Increase timeout to 10 seconds
+        transports: ['polling', 'websocket'], // Prefer polling first, then try websocket
+        path: '/socket.io',
+        forceNew: true,
+        autoConnect: true
       });
       
       this.socket.on('connect', () => {
@@ -52,6 +57,11 @@ class AccidentNotificationService {
       
       this.socket.on('disconnect', (reason) => {
         console.log('Disconnected from accident notification server:', reason);
+        // If disconnected due to transport close, immediately try HTTP polling
+        if (reason === 'transport close') {
+          console.log('Transport closed, switching to HTTP polling');
+          this.fallbackToHttpPolling();
+        }
       });
       
       this.socket.on('connect_error', (err) => {
@@ -74,6 +84,11 @@ class AccidentNotificationService {
         console.log('Accident history received via socket.io:', accidents);
         this.notifyListeners('accident-history', accidents);
       });
+      
+      this.socket.on('camera-status-update', (data: any) => {
+        console.log('Camera status update received via socket.io:', data);
+        this.notifyListeners('camera-status-update', data);
+      });
     } catch (error) {
       console.error('Failed to connect to notification server:', error);
       this.fallbackToHttpPolling();
@@ -84,17 +99,40 @@ class AccidentNotificationService {
   private fallbackToHttpPolling(): void {
     console.log('Falling back to HTTP polling for accident updates');
     
+    // Clear existing polling interval if it exists
+    if ((this as any).pollInterval) {
+      clearInterval((this as any).pollInterval);
+    }
+    
     // Set up polling interval for accidents
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch('/api/accidents');
-        if (response.ok) {
-          const accidents = await response.json();
+        // Poll for accidents
+        const accidentResponse = await fetch('http://127.0.0.1:5000/api/accidents');
+        if (accidentResponse.ok) {
+          const accidents = await accidentResponse.json();
           console.log('Accidents fetched via HTTP polling:', accidents);
           this.notifyListeners('accident-history', accidents);
         }
+        
+        // Also poll for active cameras
+        const camerasResponse = await fetch('http://127.0.0.1:5000/api/cameras/active');
+        if (camerasResponse.ok) {
+          const data = await camerasResponse.json();
+          if (data.success && data.activeCameras) {
+            console.log('Active cameras fetched via HTTP polling:', data.activeCameras);
+            data.activeCameras.forEach((camera: any) => {
+              this.notifyListeners('camera-status-update', {
+                cameraId: camera.cameraId,
+                cameraName: camera.cameraName,
+                status: 'active',
+                videoPath: camera.videoPath
+              });
+            });
+          }
+        }
       } catch (error) {
-        console.error('Error polling for accidents:', error);
+        console.error('Error polling for updates:', error);
       }
     }, 5000); // Poll every 5 seconds
     

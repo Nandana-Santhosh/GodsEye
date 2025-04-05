@@ -10,6 +10,7 @@ import datetime
 import requests
 import numpy as np
 from ultralytics import YOLO
+import sys
 
 # Configure logging
 logging.basicConfig(
@@ -268,12 +269,27 @@ class AccidentDetectionSystem:
                 accident_end_frame = int(total_frames * 0.8)
                 logger.info(f"Test video detected. Accident frames: {accident_start_frame}-{accident_end_frame}")
             
+            # For determining if we need to loop the video
+            is_single_video_mode = '--single-video' in sys.argv
+            
             while cap.isOpened() and self.running:
                 ret, frame = cap.read()
                 if not ret:
-                    # Video has ended, don't loop
+                    # Video has ended
                     logger.info(f"Video ended for camera: {camera_name}")
-                    break  # Exit the loop instead of looping back
+                    
+                    # If in single video mode, loop the video
+                    if is_single_video_mode:
+                        logger.info(f"Single video mode: Restarting video {video_path}")
+                        cap.release()
+                        cap = cv2.VideoCapture(video_path)
+                        if not cap.isOpened():
+                            logger.error(f"Failed to reopen video source: {video_path}")
+                            break
+                        continue
+                    else:
+                        # Normal mode - don't loop
+                        break
                 
                 frame_count += 1
                 
@@ -469,6 +485,11 @@ def main():
     parser.add_argument('--video-dir', type=str, default='videos', help='Directory with video files')
     parser.add_argument('--mode', type=str, choices=['local', 'presentation'], default='local',
                         help='Deployment mode: local (single laptop) or presentation (two laptops)')
+    parser.add_argument('--webcam', action='store_true', help='Use webcam as additional camera source')
+    # Add single video mode for processing a specific video
+    parser.add_argument('--single-video', type=str, help='Process only a single video file')
+    parser.add_argument('--camera-name', type=str, help='Name for the camera when using single-video mode')
+    parser.add_argument('--camera-location', type=str, help='Location for the camera when using single-video mode')
     args = parser.parse_args()
     
     # Adjust dashboard URL for presentation mode if not explicitly provided
@@ -495,15 +516,50 @@ def main():
     # Configure camera sources
     cameras = []
     
-    # Video files from the specified directory
-    if os.path.exists(args.video_dir):
-        for filename in os.listdir(args.video_dir):
-            if filename.endswith(('.mp4', '.avi', '.mov')):
-                video_path = os.path.join(args.video_dir, filename)
-                camera_name = os.path.splitext(filename)[0]
-                # Use filename as location for demo purposes
-                camera_location = f"Camera {camera_name}"
-                cameras.append(CameraConfig(camera_name, video_path, camera_location))
+    # Single video mode - process only one specific video
+    if args.single_video:
+        if not os.path.exists(args.single_video):
+            logger.error(f"Specified video file does not exist: {args.single_video}")
+            return
+        
+        # Use provided camera name or default to filename
+        camera_name = args.camera_name
+        if not camera_name:
+            camera_name = os.path.splitext(os.path.basename(args.single_video))[0]
+        
+        # Use provided location or default
+        camera_location = args.camera_location
+        if not camera_location:
+            camera_location = f"Camera {camera_name}"
+            
+        logger.info(f"Single video mode: Processing {args.single_video} as camera '{camera_name}'")
+        cameras.append(CameraConfig(camera_name, args.single_video, camera_location))
+    else:
+        # Video files from the specified directory
+        if os.path.exists(args.video_dir):
+            for filename in os.listdir(args.video_dir):
+                if filename.endswith(('.mp4', '.avi', '.mov')):
+                    video_path = os.path.join(args.video_dir, filename)
+                    camera_name = os.path.splitext(filename)[0]
+                    # Use filename as location for demo purposes
+                    camera_location = f"Camera {camera_name}"
+                    cameras.append(CameraConfig(camera_name, video_path, camera_location))
+        
+        # Add webcam if specified
+        if args.webcam:
+            webcam_id = 0  # Default webcam
+            try:
+                # Test if webcam is available
+                test_cap = cv2.VideoCapture(webcam_id)
+                if test_cap.isOpened():
+                    webcam_available = True
+                    test_cap.release()
+                    logger.info(f"Webcam {webcam_id} is available")
+                    cameras.append(CameraConfig("Webcam", webcam_id, "Live Webcam Feed"))
+                else:
+                    logger.error(f"Webcam {webcam_id} not available")
+            except Exception as e:
+                logger.error(f"Error accessing webcam: {str(e)}")
     
     # If no video files found, use some demo sources
     if not cameras:
@@ -516,7 +572,14 @@ def main():
     
     # Start monitoring
     try:
-        detector.start_monitoring(cameras, display=args.display, snapshot_dir=args.snapshot_dir)
+        # In single video mode, don't run the keyboard interrupt loop
+        if args.single_video:
+            camera_config = cameras[0]
+            logger.info(f"Processing single video: {camera_config.video_path}")
+            detector.process_camera_feed(camera_config, display=args.display, snapshot_dir=args.snapshot_dir)
+            logger.info(f"Finished processing video: {camera_config.video_path}")
+        else:
+            detector.start_monitoring(cameras, display=args.display, snapshot_dir=args.snapshot_dir)
     except KeyboardInterrupt:
         logger.info("Detection stopped by user")
     finally:

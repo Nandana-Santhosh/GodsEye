@@ -31,3 +31,13 @@ export interface Statistics {
   byLocation: Record<string, number>;
   byTimeOfDay: Record<string, number>;
 }
+
+export interface Camera {
+  id: string;
+  name: string;
+  location: string;
+  type: 'webcam' | 'video' | 'rtsp';
+  status: 'active' | 'inactive';
+  streamUrl?: string;
+  videoPath?: string;
+}
