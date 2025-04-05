@@ -37,57 +37,55 @@ cd ../frontend
 npm install
 ```
 
-### Running the Integrated Accident Detection System
+## Running the System
 
-#### 1. Start the Frontend Notification Server
+You can run the system in two modes:
+1. **Local Testing Mode** - Everything on a single laptop
+2. **Presentation Mode** - Frontend and ML components on separate laptops
+
+### Local Testing Mode (Single Laptop)
+
+Use this mode for development and testing when everything is running on your own laptop.
+
+#### 1. Start the Frontend Services
 ```bash
-cd frontend
-npm run start:server
+# Run the combined frontend startup script
+./start_frontend.bat
 ```
-This will start the server on port 5000, which will receive and distribute accident notifications.
+This starts both the notification server (port 5000) and the React frontend (port 5173).
 
-#### 2. Start the ML Detection System
+#### 2. Run the ML Detection System
 Open a new terminal and run:
 ```bash
 cd ml2
-python accident_detection.py --dashboard-url http://localhost:5000 --display
+python accident_detection.py --display
 ```
+
 Options:
-- `--dashboard-url`: URL of the frontend notification server (default: http://localhost:5000)
-- `--display`: Show video feeds with accident detection
+- `--display`: Show video feeds with accident detection (recommended)
 - `--video-dir`: Directory containing video files to process (default: "videos")
 - `--snapshot-dir`: Directory to save accident snapshots (default: "AccSnaps")
 - `--threshold`: Confidence threshold for accident detection (default: 0.5)
 
-#### 3. Start the API Server (Optional)
-If you want to use the API for integration with other systems:
-```bash
-cd ml2
-python accident_api.py
+#### 3. Access the Dashboard
+Open a browser and navigate to:
 ```
-The API will run on port 5001.
-
-#### 4. Start the Frontend Application
-Open a new terminal and run:
-```bash
-cd frontend
-npm run dev
+http://127.0.0.1:5173
 ```
-The frontend will be accessible at http://localhost:5173
 
-### Using the System for Presentation
+### Presentation Mode (Two Laptops)
 
-For the presentation setup across two laptops:
+Use this mode when demonstrating the system using two separate laptops.
 
-1. **Frontend Laptop**: Run the notification server and frontend application
+#### Setup Frontend Laptop:
+
+1. **Start the Frontend Services**
    ```bash
    # Run the combined frontend startup script
    ./start_frontend.bat
    ```
-   
-   This will start both the notification server (port 5000) and the frontend (port 5173).
 
-2. **Find your Frontend Laptop's IP Address**
+2. **Find Your IP Address**
    ```bash
    # Windows
    ipconfig
@@ -96,29 +94,37 @@ For the presentation setup across two laptops:
    # Example: 192.168.1.105
    ```
 
-3. **ML Laptop**: Run the ML detection system with the dashboard URL pointing to the Frontend Laptop
-   ```bash
-   cd ml2
-   python accident_detection.py --dashboard-url http://<frontend-laptop-ip>:5000 --display
-   ```
-   
-   Replace `<frontend-laptop-ip>` with the IP address from step 2 (e.g., http://192.168.1.105:5000)
-
-4. **Access the Dashboard**: On the Frontend Laptop, open a browser and navigate to:
+3. **Access the Dashboard**
+   Open a browser and navigate to:
    ```
    http://127.0.0.1:5173
    ```
 
-### Network Configuration
+#### Setup ML Laptop:
+
+1. **Option 1: Using the Presentation Script**
+   ```bash
+   # Run the presentation mode script
+   ./run_presentation_ml.bat
+   ```
+   When prompted, enter the IP address of the frontend laptop.
+
+2. **Option 2: Manual Command**
+   ```bash
+   cd ml2
+   python accident_detection.py --mode presentation --dashboard-url http://<frontend-laptop-ip>:5000 --display
+   ```
+   Replace `<frontend-laptop-ip>` with the actual IP address of the frontend laptop.
+
+### Network Configuration for Presentation Mode
 
 Important configuration notes:
 
 1. **Same Network**: Ensure both laptops are on the same network (WiFi or LAN)
-2. **Firewall Settings**: Make sure Windows Firewall allows incoming connections on ports 5000 and 5173
+2. **Firewall Settings**: Make sure Windows Firewall on the Frontend Laptop allows incoming connections on ports 5000 and 5173
    - Control Panel → System and Security → Windows Defender Firewall → Advanced Settings
    - Add inbound rules for TCP ports 5000 and 5173
-3. **API Connection**: The ML system sends accident data to the notification server (port 5000)
-4. **Testing Connection**: You can test connectivity between laptops by running:
+3. **Testing Connection**: You can test connectivity between laptops by running:
    ```bash
    # On ML Laptop
    ping <frontend-laptop-ip>
@@ -127,7 +133,7 @@ Important configuration notes:
 If you encounter connection issues:
 - Verify both laptops are on the same network
 - Temporarily disable firewalls for testing
-- Check that the server is listening on all interfaces (0.0.0.0) instead of just localhost
+- Restart the servers on both laptops
 
 ## Real-Time Notification System
 
@@ -148,20 +154,13 @@ The system includes:
 
 ## System Architecture
 
-- **ML Model**: CNN for image classification
+- **ML Model**: YOLOv8 model for accident detection
 - **Smart Contract**: Solidity contract for storing accident reports
 - **Frontend**: React + TypeScript + Tailwind CSS
 
-## Future Improvements
-
-- Add real-time video processing
-- Implement geolocation for accurate accident reporting
-- Add user authentication and role-based access control
-- Create mobile app for on-the-go reporting
-
 ## Features
 
-- **ML-based Accident Detection**: Automatically detect accidents in images and video feeds
+- **ML-based Accident Detection**: Automatically detect accidents in video feeds
 - **Anonymous Accident Reporting**: Allow citizens to report accidents with image verification
 - **Blockchain Integration**: Store accident data securely on the blockchain for immutable records
 - **Admin Dashboard**: Monitor and manage reported accidents
@@ -169,9 +168,8 @@ The system includes:
 
 ## Project Structure
 
-- **frontend/**: React-based web application
-- **api/**: Express.js API server
-- **ml/**: Python-based ML models for accident detection
+- **frontend/**: React-based web application with Socket.IO notification server
+- **ml2/**: Python-based ML models for accident detection using YOLOv8
 - **web3/**: Solidity smart contracts for blockchain integration
 
 ## Prerequisites
