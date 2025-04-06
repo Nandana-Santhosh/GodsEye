@@ -1,4 +1,4 @@
-export interface Accident {
+export type Accident = {
   id: string;
   timestamp: string;
   location: {
@@ -8,9 +8,12 @@ export interface Accident {
   };
   images: string[];
   status: 'pending' | 'acknowledged' | 'resolved' | 'rejected';
-  source: 'camera' | 'anonymous';
   description?: string;
-}
+  source: 'camera' | 'manual' | 'anonymous';
+  ipfs_hashes?: string[];
+  pinata_hash?: string;
+  isAnonymous?: boolean;
+};
 
 export interface EmergencyService {
   id: string;

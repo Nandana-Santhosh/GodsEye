@@ -205,20 +205,20 @@ const AdminDashboard: React.FC = () => {
 
   // Handle tab changes
   useEffect(() => {
-    if (activeTab === 'statistics') {
+      if (activeTab === 'statistics') {
       loadStatistics();
     }
   }, [activeTab]);
 
   // Handler for acknowledging accidents
-  const handleAccidentAction = async (accidentId: string, action: 'acknowledge' | 'resolve') => {
+  const handleAccidentAction = async (accidentId: string, action: 'acknowledge' | 'resolve' | 'reject') => {
     try {
       console.log(`${action} accident with ID: ${accidentId}`);
       
       // Optimistically update the UI
       setLocalReports(prev => prev.map(accident => 
         accident.id === accidentId 
-          ? {...accident, status: action === 'acknowledge' ? 'acknowledged' : 'resolved'} 
+          ? {...accident, status: action === 'acknowledge' ? 'acknowledged' : (action === 'resolve' ? 'resolved' : 'rejected')} 
           : accident
       ));
       
@@ -227,7 +227,7 @@ const AdminDashboard: React.FC = () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          status: action === 'acknowledge' ? 'acknowledged' : 'resolved' 
+          status: action === 'acknowledge' ? 'acknowledged' : (action === 'resolve' ? 'resolved' : 'rejected')
         })
       });
       
@@ -235,7 +235,7 @@ const AdminDashboard: React.FC = () => {
         throw new Error(`Failed to update accident status: ${response.status}`);
       }
       
-      toast.success(`Accident ${action === 'acknowledge' ? 'acknowledged' : 'resolved'} successfully`);
+      toast.success(`Accident ${action}d successfully`);
     } catch (error) {
       console.error(`Error updating accident ${accidentId}:`, error);
       
@@ -253,7 +253,7 @@ const AdminDashboard: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
         </div>
       </header>
-      
+
       <NotificationPanel />
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
@@ -264,14 +264,14 @@ const AdminDashboard: React.FC = () => {
             tabName="accidents"
             icon={<Camera />}
             label="Accident Reports"
-            onClick={() => setActiveTab('accidents')}
+              onClick={() => setActiveTab('accidents')}
           />
           <TabSwitch
             activeTab={activeTab}
             tabName="statistics"
             icon={<BarChart3 />}
             label="Statistics"
-            onClick={() => setActiveTab('statistics')}
+              onClick={() => setActiveTab('statistics')}
           />
           <TabSwitch
             activeTab={activeTab}
@@ -292,7 +292,7 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
         )}
-
+        
         {/* Loading indicator */}
         {loading && (
           <div className="text-center py-10">
@@ -300,7 +300,7 @@ const AdminDashboard: React.FC = () => {
             <p className="mt-2 text-gray-600">Loading data...</p>
           </div>
         )}
-
+        
         {/* Content based on active tab */}
         {!loading && activeTab === 'accidents' && (
           <div className="bg-white shadow rounded-lg p-6">
@@ -309,6 +309,7 @@ const AdminDashboard: React.FC = () => {
               accidents={localReports} 
               onAcknowledge={(id) => handleAccidentAction(id, 'acknowledge')}
               onResolve={(id) => handleAccidentAction(id, 'resolve')}
+              onReject={(id) => handleAccidentAction(id, 'reject')}
             />
           </div>
         )}

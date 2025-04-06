@@ -202,93 +202,109 @@ const findSimilarAccident = (newAccident) => {
   });
 };
 
-// Function to save accident to database
-const saveAccidentToDatabase = async (accident) => {
-  if (!supabase) {
-    console.warn('Supabase not configured, accident not saved to database');
-    return null;
-  }
-  
+// Helper function to save accidents to database
+async function saveAccidentToDatabase(accident) {
   try {
-    // Use the accidentDB module to find similar accidents
-    const { data: similarAccidents, error: findError } = await accidentDB.findSimilarAccident(
-      accident.location.address.replace('Camera: ', ''),
-      accident.timestamp
-    );
-    
-    if (findError) {
-      console.error('Error finding similar accidents:', findError);
+    if (!supabase) {
+      console.log('Supabase not initialized, skipping database save');
       return null;
     }
     
-    if (similarAccidents && similarAccidents.length > 0) {
-      // Update existing accident with new image
-      const existingAccident = similarAccidents[0];
-      console.log(`Found similar accident in database: ${existingAccident.id}`);
+    // Check if this is an existing accident by querying the database
+    const { data: existingData } = await accidentDB.getById(accident.id);
+    
+    if (existingData) {
+      console.log(`Updating existing accident in database: ${accident.id}`);
       
-      // Add the new image if not already present
-      let updatedImages = existingAccident.images || [];
-      if (accident.images && accident.images.length > 0) {
-        // Filter out duplicates
-        const newImages = accident.images.filter(img => !updatedImages.includes(img));
-        updatedImages = [...updatedImages, ...newImages];
-        
-        // Limit to 2 images
-        if (updatedImages.length > 2) {
-          updatedImages = updatedImages.slice(0, 2);
-        }
-        
-        // Update the accident record
-        const { data, error } = await accidentDB.updateAccident(existingAccident.id, {
-          images: updatedImages
-        });
-        
-        if (error) {
-          console.error('Error updating accident in database:', error);
-        } else {
-          console.log(`Updated accident ${existingAccident.id} with new images`);
-          return data;
-        }
-      }
-      
-      return existingAccident;
-    } else {
-      // Create a new accident record
-      console.log('Creating new accident record in database');
-      
-      // Format the data for database insertion
-      const dbAccident = {
-        id: accident.id,
-        camera_name: accident.location.address.replace('Camera: ', ''),
-        location: `${accident.location.lat},${accident.location.lng}`,
-        location_address: accident.location.address,
-        timestamp: accident.timestamp,
-        images: accident.images || [],
+      // Format the data for update
+      const updateData = {
         status: accident.status,
-        description: accident.description,
-        confidence: parseFloat(accident.description.match(/(\d+\.\d+)%/)?.[1] || 0) / 100,
-        source: accident.source,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        pinata_hash: null // Will be populated later
+        images: accident.images,
+        updated_at: new Date().toISOString()
       };
       
-      // Insert into database using accidentDB module
-      const { data, error } = await accidentDB.addAccident(dbAccident);
+      // Handle IPFS hashes - ensure pinata_hash is a string
+      if (accident.ipfs_hashes && accident.ipfs_hashes.length > 0) {
+        // Store all hashes in ipfs_hashes array
+        updateData.ipfs_hashes = accident.ipfs_hashes;
+        // Use the first hash as pinata_hash string
+        updateData.pinata_hash = accident.ipfs_hashes[0];
+        console.log(`Updating with ${accident.ipfs_hashes.length} IPFS hashes. Primary hash: ${updateData.pinata_hash}`);
+      } else if (accident.pinata_hash) {
+        // For backward compatibility
+        updateData.pinata_hash = accident.pinata_hash;
+        // Ensure ipfs_hashes is an array even if we only have one hash
+        updateData.ipfs_hashes = [accident.pinata_hash];
+        console.log(`Updating with Pinata hash: ${updateData.pinata_hash}`);
+      }
+      
+      // Update in database
+      const { data, error } = await accidentDB.updateAccident(accident.id, updateData);
       
       if (error) {
-        console.error('Error saving accident to database:', error);
+        console.error(`Error updating accident ${accident.id} in database:`, error);
         return null;
       }
       
-      console.log(`New accident saved to database with ID: ${data.id}`);
+      return data;
+    } else {
+      console.log(`Adding new accident to database: ${accident.id}`);
+      
+      // Format location data 
+      let locationString = "";
+      if (accident.location) {
+        if (typeof accident.location === 'string') {
+          locationString = accident.location;
+        } else if (accident.location.lat && accident.location.lng) {
+          locationString = `${accident.location.lat},${accident.location.lng}`;
+        }
+      }
+      
+      // Format the data for insertion
+      const dbData = {
+        id: accident.id,
+        camera_name: accident.source === 'camera' ? accident.description.split(' ')[3] : 'Unknown',
+        timestamp: accident.timestamp,
+        location: locationString,
+        location_address: accident.location?.address || '',
+        images: accident.images || [],
+        status: accident.status || 'pending',
+        source: accident.source || 'camera',
+        description: accident.description || '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      // Handle IPFS hashes - ensure pinata_hash is a string
+      if (accident.ipfs_hashes && accident.ipfs_hashes.length > 0) {
+        // Store all hashes in ipfs_hashes array
+        dbData.ipfs_hashes = accident.ipfs_hashes;
+        // Use the first hash as pinata_hash string
+        dbData.pinata_hash = accident.ipfs_hashes[0];
+        console.log(`Adding with ${accident.ipfs_hashes.length} IPFS hashes. Primary hash: ${dbData.pinata_hash}`);
+      } else if (accident.pinata_hash) {
+        // For backward compatibility
+        dbData.pinata_hash = accident.pinata_hash;
+        // Ensure ipfs_hashes is an array even if we only have one hash
+        dbData.ipfs_hashes = [accident.pinata_hash];
+        console.log(`Adding with Pinata hash: ${dbData.pinata_hash}`);
+      }
+      
+      // Insert into database
+      const { data, error } = await accidentDB.addAccident(dbData);
+      
+      if (error) {
+        console.error(`Error adding accident ${accident.id} to database:`, error);
+        return null;
+      }
+      
       return data;
     }
-  } catch (error) {
-    console.error('Database operation failed:', error);
+  } catch (dbError) {
+    console.error('Database error:', dbError);
     return null;
   }
-};
+}
 
 // Socket.IO connection handler
 io.on('connection', (socket) => {
@@ -484,16 +500,39 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API endpoint to receive accident notifications from ML system
+// ML accident detection endpoint
 app.post('/api/accidents', async (req, res) => {
   try {
-    console.log('Received accident notification:', req.body);
-    const { camera_name, location, timestamp, confidence, snapshot_path, images } = req.body;
+    const { 
+      camera_name, 
+      location, 
+      timestamp, 
+      confidence, 
+      snapshot_path, 
+      images,
+      ipfs_hashes // New field for IPFS hashes
+    } = req.body;
     
-    if (!camera_name || !location) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields (camera_name, location)'
+    console.log(`Accident notification received from ${camera_name}`);
+    console.log('Data:', JSON.stringify({
+      camera_name,
+      location: typeof location === 'object' ? `${location.lat},${location.lng}` : location,
+      timestamp,
+      confidence,
+      snapshot_count: images ? images.length : (snapshot_path ? 1 : 0),
+      ipfs_hashes: ipfs_hashes || []
+    }, null, 2));
+    
+    // Log IPFS hashes specifically for debugging
+    if (ipfs_hashes && ipfs_hashes.length > 0) {
+      console.log(`Received ${ipfs_hashes.length} IPFS hashes:`, JSON.stringify(ipfs_hashes));
+    }
+    
+    // Validate required fields
+    if (!camera_name) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required field: camera_name' 
       });
     }
     
@@ -519,11 +558,20 @@ app.post('/api/accidents', async (req, res) => {
       description: `Accident detected by ${camera_name} with ${(confidence * 100).toFixed(1)}% confidence`
     };
     
+    // Add IPFS hashes if available - ensure they are properly formatted
+    if (ipfs_hashes && ipfs_hashes.length > 0) {
+      // Ensure ipfs_hashes is an array
+      newAccident.ipfs_hashes = Array.isArray(ipfs_hashes) ? ipfs_hashes : [ipfs_hashes];
+      // Use the first hash as pinata_hash
+      newAccident.pinata_hash = newAccident.ipfs_hashes[0];
+      console.log(`Setting IPFS data on accident object: pinata_hash=${newAccident.pinata_hash}, ipfs_hashes=[${newAccident.ipfs_hashes.join(', ')}]`);
+    }
+    
     // Check if we already have a similar accident (same camera within 5 mins)
     const existingAccident = findSimilarAccident(newAccident);
     
     if (existingAccident) {
-      console.log(`Similar accident found, updating images for: ${existingAccident.id}`);
+      console.log(`Similar accident found, updating images and IPFS hashes for: ${existingAccident.id}`);
       
       // Add the new image if not already present
       newAccident.images.forEach(img => {
@@ -535,6 +583,28 @@ app.post('/api/accidents', async (req, res) => {
       // Limit to 2 images maximum
       if (existingAccident.images.length > 2) {
         existingAccident.images = existingAccident.images.slice(0, 2);
+      }
+      
+      // Add new IPFS hashes if available
+      if (newAccident.ipfs_hashes && newAccident.ipfs_hashes.length > 0) {
+        // Initialize the array if it doesn't exist
+        if (!existingAccident.ipfs_hashes) {
+          existingAccident.ipfs_hashes = [];
+        }
+        
+        // Add new hashes if they don't already exist
+        newAccident.ipfs_hashes.forEach(hash => {
+          if (!existingAccident.ipfs_hashes.includes(hash)) {
+            existingAccident.ipfs_hashes.push(hash);
+            console.log(`Added IPFS hash to existing accident: ${hash}`);
+          }
+        });
+        
+        // Set primary pinata_hash from first hash if not already set
+        if (!existingAccident.pinata_hash && existingAccident.ipfs_hashes.length > 0) {
+          existingAccident.pinata_hash = existingAccident.ipfs_hashes[0];
+          console.log(`Set pinata_hash to ${existingAccident.pinata_hash}`);
+        }
       }
       
       // Update timestamp to be the earliest
@@ -549,17 +619,53 @@ app.post('/api/accidents', async (req, res) => {
         existingAccident.description = `Accident detected by ${camera_name} with ${newConf.toFixed(1)}% confidence`;
       }
       
-      // Emit update event
-      io.emit('accident-updated', existingAccident);
+      // Directly update the database with the accident including IPFS hashes
+      console.log('Updating accident in database with the following fields:');
+      console.log('- id:', existingAccident.id);
+      console.log('- pinata_hash:', existingAccident.pinata_hash);
+      console.log('- ipfs_hashes:', existingAccident.ipfs_hashes);
       
-      // Save to database if available
+      // Create specific update data for database
+      const dbUpdateData = {
+        status: existingAccident.status,
+        images: existingAccident.images,
+        description: existingAccident.description,
+        updated_at: new Date().toISOString()
+      };
+      
+      // Explicitly add IPFS fields to ensure they're included in the update
+      if (existingAccident.ipfs_hashes && existingAccident.ipfs_hashes.length > 0) {
+        dbUpdateData.ipfs_hashes = existingAccident.ipfs_hashes;
+        dbUpdateData.pinata_hash = existingAccident.pinata_hash || existingAccident.ipfs_hashes[0];
+      }
+      
+      // Emit update event with all data including IPFS hashes
+      io.emit('accident-updated', {
+        ...existingAccident,
+        // Ensure ipfs_hashes is an array, using pinata_hash as fallback
+        ipfs_hashes: existingAccident.ipfs_hashes && existingAccident.ipfs_hashes.length > 0 
+          ? existingAccident.ipfs_hashes 
+          : (existingAccident.pinata_hash ? [existingAccident.pinata_hash] : [])
+      });
+      
+      // Save to database if available - use direct update to database
       if (supabase) {
-        await saveAccidentToDatabase(existingAccident);
+        try {
+          const { data, error } = await accidentDB.updateAccident(existingAccident.id, dbUpdateData);
+          
+          if (error) {
+            console.error(`Error updating accident ${existingAccident.id} in database:`, error);
+          } else {
+            console.log(`Successfully updated accident ${existingAccident.id} with IPFS data in database`);
+          }
+        } catch (dbError) {
+          console.error(`Database error updating accident ${existingAccident.id}:`, dbError);
+        }
       }
       
       return res.status(200).json({ 
         success: true, 
-        message: 'Accident updated with new images',
+        message: 'Accident updated with new images and IPFS hashes',
         accident: existingAccident
       });
     } else {
@@ -571,12 +677,47 @@ app.post('/api/accidents', async (req, res) => {
         accidents.splice(20);
       }
       
-      // Emit to all connected clients
+      // Emit to all connected clients with complete data
       io.emit('new-accident', newAccident);
       
-      // Save to database if available
+      // Save to database if available - with explicit IPFS data
       if (supabase) {
-        await saveAccidentToDatabase(newAccident);
+        try {
+          // Format data explicitly for database insertion
+          const dbData = {
+            id: newAccident.id,
+            camera_name: camera_name,
+            timestamp: newAccident.timestamp,
+            location: typeof location === 'object' ? `${location.lat},${location.lng}` : location,
+            location_address: newAccident.location.address,
+            images: newAccident.images,
+            status: 'pending',
+            source: 'camera',
+            description: newAccident.description,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+          
+          // Explicitly add IPFS fields
+          if (newAccident.ipfs_hashes && newAccident.ipfs_hashes.length > 0) {
+            dbData.ipfs_hashes = newAccident.ipfs_hashes;
+            dbData.pinata_hash = newAccident.pinata_hash || newAccident.ipfs_hashes[0];
+            console.log(`Adding new accident with IPFS data: 
+              - pinata_hash: ${dbData.pinata_hash}
+              - ipfs_hashes: [${dbData.ipfs_hashes.join(', ')}]`);
+          }
+          
+          // Direct database insertion
+          const { data, error } = await accidentDB.addAccident(dbData);
+          
+          if (error) {
+            console.error(`Error adding accident ${newAccident.id} to database:`, error);
+          } else {
+            console.log(`Successfully added accident ${newAccident.id} with IPFS data to database`);
+          }
+        } catch (dbError) {
+          console.error(`Database error adding accident ${newAccident.id}:`, dbError);
+        }
       }
       
       console.log(`New accident received from ${camera_name}:`, newAccident);
@@ -622,7 +763,9 @@ app.get('/api/accidents', async (req, res) => {
         images: acc.images || [],
         status: acc.status || 'pending',
         source: acc.source || 'camera',
-        description: acc.description || `Accident detected by ${acc.camera_name}`
+        description: acc.description || `Accident detected by ${acc.camera_name}`,
+        pinata_hash: acc.pinata_hash || null,
+        ipfs_hashes: acc.ipfs_hashes || []
       }));
       
       return res.json(formattedAccidents);
@@ -861,6 +1004,90 @@ app.post('/api/dispatch/fireforce', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to dispatch fire force: ' + (error.message || 'Unknown error')
+    });
+  }
+});
+
+// Anonymous accident report endpoint
+app.post('/api/anonymous-report', async (req, res) => {
+  try {
+    const { image, location, description } = req.body;
+    
+    // Validate required fields
+    if (!location || !description) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields: location and description are required' 
+      });
+    }
+    
+    // Create a new accident ID
+    const accidentId = `anon_${Date.now()}`;
+    
+    // Handle the image (base64 encoded)
+    let imagePath = null;
+    if (image && image.startsWith('data:image')) {
+      // Extract the base64 content
+      const base64Data = image.split(';base64,').pop();
+      
+      // Create a filename and path
+      const fileName = `anonymous_report_${accidentId}.jpg`;
+      const savePath = path.join(__dirname, '..', 'ml2', 'AccSnaps', fileName);
+      
+      // Save the image to disk
+      fs.writeFileSync(savePath, base64Data, { encoding: 'base64' });
+      
+      // Use the relative path for the database
+      imagePath = `AccSnaps/${fileName}`;
+      
+      console.log(`Saved anonymous report image to ${imagePath}`);
+    }
+    
+    // Create the accident object
+    const newAccident = {
+      id: accidentId,
+      timestamp: new Date().toISOString(),
+      location: typeof location === 'string' 
+        ? { address: location } 
+        : location,
+      images: imagePath ? [imagePath] : [],
+      status: 'pending',
+      source: 'anonymous',
+      description: description || 'Anonymous accident report'
+    };
+    
+    // Add to in-memory store
+    accidents.unshift(newAccident);
+    
+    // Keep only the latest 20 accidents for memory management
+    if (accidents.length > 20) {
+      accidents.splice(20);
+    }
+    
+    // Emit to all connected clients with a special flag for anonymous reports
+    io.emit('new-accident', {
+      ...newAccident,
+      isAnonymous: true
+    });
+    
+    // Save to database if available
+    if (supabase) {
+      await saveAccidentToDatabase(newAccident);
+    }
+    
+    console.log('New anonymous accident report received:', newAccident);
+    
+    // Send successful response
+    res.status(200).json({ 
+      success: true, 
+      message: 'Anonymous accident report received and awaiting admin verification',
+      accident: newAccident
+    });
+  } catch (error) {
+    console.error('Error processing anonymous accident report:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to process anonymous accident report' 
     });
   }
 });

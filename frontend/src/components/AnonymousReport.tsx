@@ -32,44 +32,32 @@ const AnonymousReport: React.FC = () => {
     if (!file) return;
 
     setImage(file);
-    setLoading(true);
     setError('');
-
+    
+    // Display a preview of the image
     try {
-      // Send image to ML API
-      const formData = new FormData();
-      formData.append('image', file);
+      const imageUrl = URL.createObjectURL(file);
+      console.log('Created preview URL:', imageUrl);
       
-      console.log('Sending request to ML API...');
-      const response = await fetch(`${API_URL}/predict`, {
-        method: 'POST',
-        body: formData
+      // Set a mock prediction to allow submission
+      setPrediction({
+        is_accident: true,
+        confidence: 1.0,
+        success: true
       });
-      
-      const data = await response.json();
-      console.log('Received response:', data);
-      
-      if (!data.success) {
-        throw new Error(data.error || 'Unknown error from ML API');
-      }
-      
-      setPrediction(data);
     } catch (error: any) {
-      console.error('Error processing image:', error);
+      console.error('Error creating image preview:', error);
       setError(`Error processing image: ${error.message || 'Unknown error'}`);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Submit button clicked!");
-    console.log("Prediction:", prediction);
     
-    if (!prediction?.is_accident) {
-      console.log("Error: Image not classified as accident");
-      setError('Cannot report: The image was not classified as an accident');
+    if (!image) {
+      console.log("Error: No image uploaded");
+      setError('Please upload an image of the accident');
       return;
     }
     
@@ -84,24 +72,30 @@ const AnonymousReport: React.FC = () => {
     setSuccess('');
     
     try {
-      // Create a new report object
-      const newReport: LocalReport = {
-        id: Date.now().toString(),
-        location,
-        description,
-        image,
-        timestamp: Math.floor(Date.now() / 1000),
-        status: 'pending'
-      };
-
-      // Get existing reports from localStorage
-      const existingReports = JSON.parse(localStorage.getItem('pendingReports') || '[]');
+      // Convert image to base64 if it exists
+      let base64Image = null;
+      if (image) {
+        base64Image = await convertImageToBase64(image);
+      }
       
-      // Add new report to the list
-      existingReports.push(newReport);
+      // Send data to the API
+      const response = await fetch(`${API_URL}/api/anonymous-report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image: base64Image,
+          location,
+          description
+        })
+      });
       
-      // Save back to localStorage
-      localStorage.setItem('pendingReports', JSON.stringify(existingReports));
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Error submitting accident report');
+      }
       
       // Set success message
       setSuccess(
@@ -122,6 +116,16 @@ const AnonymousReport: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to convert image to base64
+  const convertImageToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
   };
 
   return (
@@ -147,7 +151,7 @@ const AnonymousReport: React.FC = () => {
         )}
         
         <div className="mb-6">
-          <h2 className="text-lg font-semibold mb-2">Step 1: Upload Image for Analysis</h2>
+          <h2 className="text-lg font-semibold mb-2">Step 1: Upload Accident Image</h2>
           <input
             type="file"
             accept="image/*"
@@ -159,10 +163,16 @@ const AnonymousReport: React.FC = () => {
             <div className="text-blue-500 my-2">Processing...</div>
           )}
           
-          {prediction && (
-            <div className={`mt-4 p-4 rounded ${prediction.is_accident ? 'bg-red-50' : 'bg-green-50'}`}>
-              <p className="font-bold">{prediction.is_accident ? '⚠️ Accident Detected' : '✓ No Accident Detected'}</p>
-              <p>Confidence: {(prediction.confidence * 100).toFixed(2)}%</p>
+          {image && (
+            <div className="mt-4 p-4 rounded bg-green-50">
+              <p className="font-bold">✓ Image Uploaded</p>
+              <div className="mt-2">
+                <img 
+                  src={URL.createObjectURL(image)} 
+                  alt="Accident preview" 
+                  className="max-h-[200px] object-contain"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -204,9 +214,9 @@ const AnonymousReport: React.FC = () => {
             <button
               type="submit"
               className={`bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded ${
-                loading || !prediction?.is_accident ? 'opacity-50 cursor-not-allowed' : ''
+                loading || !image || !location || !description ? 'opacity-50 cursor-not-allowed' : ''
               }`}
-              disabled={loading || !prediction?.is_accident}
+              disabled={loading || !image || !location || !description}
             >
               {loading ? 'Processing...' : 'Submit Accident Report'}
             </button>

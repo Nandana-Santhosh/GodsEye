@@ -7,6 +7,7 @@ echo - Accident Detection with ML
 echo - Real-time Alerts Dashboard
 echo - Camera Monitoring Grid
 echo - Webcam Support for Live Detection
+echo - Blockchain Integration for Evidence Storage
 echo ================================
 echo.
 echo Camera Monitoring Instructions:
@@ -14,7 +15,7 @@ echo 1. Go to the Cameras tab in the Admin Dashboard
 echo 2. Click the play button for any camera to start it
 echo 3. ML model will automatically start analyzing the video
 echo 4. Any detected accidents will appear in the Accidents tab
-echo NOTE: Camera controls and images use the backend API (port 5000)
+echo NOTE: Camera controls now use the backend API (port 5000)
 echo ================================
 
 :: Check if required directories exist
@@ -28,6 +29,16 @@ if not exist videos (
   mkdir videos
 )
 
+if not exist ml2\snapshots (
+  echo Creating snapshots directory for blockchain storage...
+  mkdir ml2\snapshots
+)
+
+if not exist "ml2\Saved snapshots" (
+  echo Creating saved snapshots directory...
+  mkdir "ml2\Saved snapshots"
+)
+
 :: Check if model file exists
 if not exist ml2\best.pt (
   echo WARNING: ML model file 'best.pt' not found in ml2 directory!
@@ -36,6 +47,18 @@ if not exist ml2\best.pt (
   echo.
   set /p continue="Do you want to continue anyway? (y/n): "
   if /i not "%continue%"=="y" exit /b 1
+)
+
+:: Ask if the user wants to start the blockchain node
+echo.
+set /p start_blockchain="Do you want to start the blockchain node for IPFS integration? (y/n): "
+if /i "%start_blockchain%"=="y" (
+  echo.
+  echo Starting Blockchain Node...
+  start "GodsEye Blockchain" cmd /c "call start_blockchain.bat"
+  echo.
+  echo Waiting for blockchain node to initialize...
+  timeout /t 5 /nobreak > nul
 )
 
 :: Start the backend server in a new window
@@ -58,9 +81,13 @@ echo System started successfully!
 echo.
 echo Access the dashboard at: http://127.0.0.1:5173
 echo Backend API running at: http://127.0.0.1:5000
+if /i "%start_blockchain%"=="y" (
+  echo Blockchain node running at: http://127.0.0.1:8545
+)
 echo.
 echo If you encounter connection issues, run 'fix_connection.bat'
 echo If ML model errors occur, run 'fix_model_path.bat'
+echo If blockchain connection fails, run 'start_blockchain.bat'
 echo ================================
 
 :: Keep the console open

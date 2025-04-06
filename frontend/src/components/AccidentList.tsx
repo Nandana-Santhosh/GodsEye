@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X, Ambulance, Flame } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X, Ambulance, Flame, Hash, ExternalLink } from 'lucide-react';
 import { Accident } from '../types';
 import { toast } from 'react-hot-toast';
 
@@ -8,14 +8,17 @@ interface AccidentListProps {
   accidents: Accident[];
   onAcknowledge?: (id: string) => void;
   onResolve?: (id: string) => void;
+  onReject?: (id: string) => void;
 }
 
 const AccidentList: React.FC<AccidentListProps> = ({ 
   accidents = [], 
   onAcknowledge, 
-  onResolve 
+  onResolve,
+  onReject
 }) => {
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  const [displayHash, setDisplayHash] = useState<string | null>(null);
   const [dispatchingAmbulance, setDispatchingAmbulance] = useState<string | null>(null);
   const [dispatchingFireforce, setDispatchingFireforce] = useState<string | null>(null);
   
@@ -47,9 +50,33 @@ const AccidentList: React.FC<AccidentListProps> = ({
 
   const formatDate = (timestamp: string) => {
     try {
-      return new Date(timestamp).toLocaleString();
+      const date = new Date(timestamp);
+      
+      // Check if the date is valid
+      if (isNaN(date.getTime())) {
+        throw new Error('Invalid date');
+      }
+      
+      // Format options for date and time
+      const dateOptions: Intl.DateTimeFormatOptions = {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      };
+      
+      const timeOptions: Intl.DateTimeFormatOptions = {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      };
+      
+      const dateStr = date.toLocaleDateString(undefined, dateOptions);
+      const timeStr = date.toLocaleTimeString(undefined, timeOptions);
+      
+      return `${dateStr} at ${timeStr}`;
     } catch (error) {
-      console.error("Invalid date format:", error);
+      console.error("Invalid date format:", error, timestamp);
       return 'Invalid date';
     }
   };
@@ -164,6 +191,38 @@ const AccidentList: React.FC<AccidentListProps> = ({
     }
   };
 
+  // Function to get IPFS gateway URL from hash
+  const getIpfsUrl = (hash: string) => {
+    return `https://gateway.pinata.cloud/ipfs/${hash}`;
+  };
+  
+  // Function to copy hash to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        toast.success('IPFS hash copied to clipboard');
+      })
+      .catch(err => {
+        console.error('Failed to copy hash: ', err);
+        toast.error('Failed to copy hash');
+      });
+  };
+
+  // Add a helper function at the top of the component to get IPFS hash for a specific image
+  const getIpfsHashForImage = (accident: Accident, imageIndex: number): string | null => {
+    // First check if we have an array of IPFS hashes with a value at this index
+    if (accident.ipfs_hashes && accident.ipfs_hashes.length > imageIndex) {
+      return accident.ipfs_hashes[imageIndex];
+    }
+    // If no array or no hash at this index but it's the first image, check for single pinata_hash
+    else if (imageIndex === 0 && accident.pinata_hash) {
+      return accident.pinata_hash;
+    }
+    
+    // No hash found for this image
+    return null;
+  };
+
   if (accidents.length === 0) {
     return (
       <div className="text-center py-8">
@@ -196,6 +255,33 @@ const AccidentList: React.FC<AccidentListProps> = ({
                 element.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
               }}
             />
+            {displayHash && (
+              <div className="absolute bottom-4 left-0 right-0 bg-black/70 text-white p-3 text-center">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Hash size={16} />
+                  <span className="text-sm font-mono">{displayHash}</span>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      copyToClipboard(displayHash);
+                    }}
+                    className="ml-2 p-1 bg-gray-700 rounded hover:bg-gray-600 text-xs"
+                  >
+                    Copy
+                  </button>
+                </div>
+                <a 
+                  href={getIpfsUrl(displayHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex items-center justify-center gap-1 text-blue-300 hover:text-blue-200 text-xs"
+                >
+                  <ExternalLink size={12} />
+                  View on IPFS Gateway
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -216,6 +302,14 @@ const AccidentList: React.FC<AccidentListProps> = ({
                   <p className="text-xs text-gray-500">
                     {formatDate(accident.timestamp)}
                   </p>
+                  {accident.pinata_hash && (
+                    <p className="text-xs text-gray-500 flex items-center mt-1">
+                      <Hash size={12} className="mr-1" />
+                      <span className="font-mono truncate max-w-[150px]" title={accident.pinata_hash}>
+                        {accident.pinata_hash.substring(0, 8)}...{accident.pinata_hash.substring(accident.pinata_hash.length - 6)}
+                      </span>
+                    </p>
+                  )}
                 </div>
               </div>
               
@@ -286,40 +380,71 @@ const AccidentList: React.FC<AccidentListProps> = ({
                     Resolve
                   </button>
                 )}
+                
+                {/* Add reject button for anonymous reports */}
+                {accident.status === 'pending' && accident.source === 'anonymous' && onReject && (
+                  <button 
+                    onClick={() => onReject(accident.id)}
+                    className="px-3 py-1 bg-red-100 text-red-700 rounded-md text-sm font-medium hover:bg-red-200"
+                  >
+                    Reject
+                  </button>
+                )}
               </div>
             </div>
             
             {/* Display images in a grid layout if available */}
             {accident.images && accident.images.length > 0 && (
               <div className="mt-2 grid grid-cols-2 gap-2">
-                {accident.images.map((image, index) => (
-                  <div key={index} className="relative group">
-                    <img 
-                      src={getImageUrl(image)} 
-                      alt={`Accident image ${index + 1}`} 
-                      className="h-36 w-full object-cover rounded-md cursor-pointer"
-                      onClick={() => setEnlargedImage(getImageUrl(image))}
-                      onError={(e) => {
-                        // Replace with a div containing text instead of an external image
-                        const element = e.target as HTMLImageElement;
-                        element.style.display = 'none';
-                        const parent = element.parentElement;
-                        if (parent) {
-                          const placeholder = document.createElement('div');
-                          placeholder.className = 'h-36 w-full flex items-center justify-center bg-gray-200 rounded-md text-gray-500 text-sm';
-                          placeholder.textContent = 'Image not available';
-                          parent.appendChild(placeholder);
-                        }
-                      }}
-                    />
-                    <button 
-                      className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => setEnlargedImage(getImageUrl(image))}
-                    >
-                      <Maximize size={16} />
-                    </button>
-                  </div>
-                ))}
+                {accident.images.map((image, index) => {
+                  // Get the corresponding IPFS hash for this image, if available
+                  const ipfsHash = getIpfsHashForImage(accident, index);
+                  
+                  return (
+                    <div key={index} className="relative group">
+                      <img 
+                        src={getImageUrl(image)} 
+                        alt={`Accident image ${index + 1}`} 
+                        className="h-36 w-full object-cover rounded-md cursor-pointer"
+                        onClick={() => {
+                          setEnlargedImage(getImageUrl(image));
+                          setDisplayHash(ipfsHash);
+                        }}
+                        onError={(e) => {
+                          // Replace with a div containing text instead of an external image
+                          const element = e.target as HTMLImageElement;
+                          element.style.display = 'none';
+                          const parent = element.parentElement;
+                          if (parent) {
+                            const placeholder = document.createElement('div');
+                            placeholder.className = 'h-36 w-full flex items-center justify-center bg-gray-200 rounded-md text-gray-500 text-sm';
+                            placeholder.textContent = 'Image not available';
+                            parent.appendChild(placeholder);
+                          }
+                        }}
+                      />
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity text-xs flex items-center overflow-hidden">
+                        {ipfsHash ? (
+                          <>
+                            <Hash size={10} className="mr-1 flex-shrink-0" />
+                            <span className="font-mono truncate">{ipfsHash.substring(0, 6)}...{ipfsHash.substring(ipfsHash.length - 4)}</span>
+                          </>
+                        ) : (
+                          <span className="italic">No IPFS hash</span>
+                        )}
+                      </div>
+                      <button 
+                        className="absolute top-2 right-2 p-1 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          setEnlargedImage(getImageUrl(image));
+                          setDisplayHash(ipfsHash);
+                        }}
+                      >
+                        <Maximize size={16} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
             

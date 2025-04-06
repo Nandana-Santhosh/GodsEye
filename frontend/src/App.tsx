@@ -8,7 +8,38 @@ import notificationService from './services/AccidentNotificationService';
 
 function App() {
   const [connectionAttempts, setConnectionAttempts] = useState(0);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const MAX_RECONNECT_ATTEMPTS = 3;
+
+  // Check if user is logged in
+  useEffect(() => {
+    const checkAuth = () => {
+      const adminAuthenticated = localStorage.getItem('adminAuthenticated') === 'true';
+      setIsLoggedIn(adminAuthenticated);
+    };
+    
+    // Check initially and also whenever storage changes
+    checkAuth();
+    
+    // Listen for storage events (if user logs in/out in another tab)
+    const handleStorageChange = () => {
+      checkAuth();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  // Logout function
+  const handleLogout = () => {
+    localStorage.removeItem('adminAuthenticated');
+    setIsLoggedIn(false);
+    // Navigate to home page after logout
+    window.location.href = '/';
+  };
 
   // Connect to the notification service when the app starts
   useEffect(() => {
@@ -64,9 +95,23 @@ function App() {
               <Link to="/report" className="hover:text-blue-200">
                 Report Accident
               </Link>
-              <Link to="/admin/login" className="hover:text-blue-200">
-                Admin Login
-              </Link>
+              {isLoggedIn ? (
+                <>
+                  <Link to="/admin/dashboard" className="hover:text-blue-200">
+                    Dashboard
+                  </Link>
+                  <button 
+                    onClick={handleLogout} 
+                    className="hover:text-blue-200 bg-red-700 px-3 py-1 rounded"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <Link to="/admin/login" className="hover:text-blue-200">
+                  Admin Login
+                </Link>
+              )}
             </div>
           </div>
         </nav>

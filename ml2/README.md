@@ -1,93 +1,86 @@
-# Accident Detection System
+# Accident Detection and Blockchain Storage System
 
-This system uses YOLOv8 to detect traffic accidents in videos, treats them as different traffic cameras, and sends accident alerts to a frontend dashboard.
+This system automatically detects accidents from video feeds, captures snapshots, and securely stores evidence on IPFS and blockchain.
 
-## Setup
+## Features
 
-1. Install the required dependencies:
-   ```
-   pip install -r requirements.txt
-   ```
+- 🔍 Automatic accident detection using YOLOv8 model
+- 📸 Captures image snapshots when accidents are detected
+- 🌐 Uploads evidence to IPFS (InterPlanetary File System)
+- 🔗 Stores IPFS hashes on blockchain for tamper-proof verification
+- 📊 Integrates with frontend dashboard for monitoring
+- 📱 Sends emergency SMS notifications via Twilio
 
-2. Ensure you have the YOLOv8 model file (`best.pt`) in the current directory.
+## Requirements
 
-3. Make sure the test videos (`testing1.mp4` and `testing2.mp4`) are in the current directory.
+### Environment Variables
 
-## Project Presentation Setup
-
-This system is designed for a two-laptop presentation setup:
-
-### Laptop 1: Frontend Dashboard
-- Run your React frontend admin dashboard
-- Make sure it has an API endpoint to receive accident notifications (e.g., `http://192.168.1.100:3000`)
-
-### Laptop 2: Accident Detection System
-- Run this accident detection script
-- It will monitor both test videos as if they were traffic cameras
-- When accidents are detected, it will:
-  - Save snapshots in the format `cameraname_timestamp_uniquenumber.jpg`
-  - Send accident data to the frontend dashboard
-
-## Running the System
+Create a `.env` file in the `backend` directory with the following variables:
 
 ```
-python accident_detection.py --dashboard http://FRONTEND_IP:PORT
+# Twilio Configuration
+TWILIO_ENABLED=true
+TWILIO_ACCOUNT_SID=your_account_sid
+TWILIO_AUTH_TOKEN=your_auth_token
+TWILIO_PHONE_NUMBER=your_twilio_phone
+AMBULANCE_PHONE=emergency_number
+FIREFORCE_PHONE=fireforce_number
+
+# IPFS/Pinata Configuration
+PINATA_API_KEY=your_pinata_api_key
+PINATA_SECRET_API_KEY=your_pinata_secret_key
+
+# Hardhat/Blockchain Configuration
+HARDHAT_DIR=path/to/your/hardhat/project  # Optional, defaults to ../web3/web3
 ```
 
-Replace `FRONTEND_IP:PORT` with the IP address and port of your frontend dashboard.
+### Directory Structure
 
-### Command-line Options:
+The system expects the following directories:
 
-- `--model PATH`: Path to the YOLOv8 model file (default: `best.pt`)
-- `--conf FLOAT`: Confidence threshold for detection (default: 0.5)
-- `--no-display`: Disable video display windows (useful for headless operation)
-- `--snapshot-dir DIR`: Directory to save accident snapshots (default: AccSnaps)
-- `--dashboard URL`: URL of the frontend dashboard API (required for integration)
+- `ml2/AccSnaps`: Stores snapshots for frontend dashboard display
+- `ml2/snapshots`: Stores snapshots for IPFS/blockchain upload
+- `ml2/Saved snapshots`: Destination for processed snapshots after blockchain upload
+- `videos`: Directory containing test videos (optional)
 
-## How It Works
+## Usage
 
-1. The script simultaneously monitors two video sources:
-   - `testing1.mp4` (treated as Camera 1 at Highway 101 North)
-   - `testing2.mp4` (treated as Camera 2 at Main Street Intersection)
+Run the accident detection system with integrated blockchain storage:
 
+```
+python accident_detection.py --display
+```
+
+### Command-line Options
+
+- `--model`: Path to YOLOv8 model file (default: `best.pt`)
+- `--threshold`: Confidence threshold (default: `0.5`)
+- `--display`: Enable video display
+- `--snapshot-dir`: Directory to save snapshots (default: `AccSnaps`)
+- `--dashboard-url`: URL of the frontend dashboard API (default: `http://127.0.0.1:5000`)
+- `--video-dir`: Directory with video files (default: `videos`)
+- `--single-video`: Process only a single video file
+- `--camera-name`: Name for the camera when using single-video mode
+- `--camera-location`: Location for the camera when using single-video mode
+- `--loop-video`: Loop the video in single video mode
+- `--disable-blockchain`: Disable automatic blockchain storage
+
+## Workflow
+
+1. The system monitors video feeds for accidents
 2. When an accident is detected:
-   - The detection is highlighted on the video display
-   - Up to 3 snapshots are saved in the `AccSnaps` folder
-   - An alert is sent to the frontend dashboard with:
-     - Camera name
-     - Location coordinates
-     - Timestamp
-     - Confidence level
-     - Path to the snapshot image
+   - Snapshots are captured and saved to both `AccSnaps` and `snapshots` directories
+   - Dashboard is notified via API call
+   - Snapshots are automatically uploaded to IPFS
+   - IPFS hashes are stored on blockchain for verification
+3. After processing is complete, remaining snapshots are processed
 
-3. The frontend dashboard can:
-   - Display the accident alerts
-   - Show the accident location
-   - Display the snapshot images
-   - Allow admins to acknowledge and manage the alerts
+## Integration
 
-## Dashboard Integration
+This system replaces the previous workflow that required running `Upload3.py` separately. Now the entire process is handled automatically by `accident_detection.py`.
 
-The system sends JSON data to your frontend with the following structure:
+## Troubleshooting
 
-```json
-{
-  "camera_name": "cam1",
-  "location": "37.7749,-122.4194",
-  "timestamp": "2023-04-04T15:30:45.123456",
-  "confidence": 0.85,
-  "snapshot_path": "AccSnaps/cam1_20230404_153045_0.jpg"
-}
-```
-
-Your frontend should implement an API endpoint that can receive this data and update the dashboard accordingly.
-
-## Testing Without a Frontend
-
-For testing without connecting to a frontend, you can run:
-
-```
-python accident_detection.py
-```
-
-This will still detect accidents and save snapshots, but won't try to send notifications to a dashboard. The accident details will be printed to the console. 
+- **IPFS Upload Failures**: Check that your Pinata API keys are correctly set in the `.env` file
+- **Blockchain Storage Failures**: Ensure your Hardhat environment is properly set up and running
+- **Dashboard Integration Issues**: Verify the dashboard URL and API endpoints 
