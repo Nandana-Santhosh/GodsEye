@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
-const API_URL = 'http://localhost:5000';
+// Use environment variable for API URL, or dynamically determine it
+const API_URL = import.meta.env.VITE_API_URL || window.location.hostname === 'localhost' 
+  ? 'http://localhost:5000' 
+  : `http://${window.location.hostname}:5000`;
 
 interface Prediction {
   is_accident: boolean;
