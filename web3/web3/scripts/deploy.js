@@ -30,8 +30,9 @@ const hre = require("hardhat");
 const main = async () => {
     const DeAcc = await hre.ethers.getContractFactory("DeAcc");
     const deAcc = await DeAcc.deploy(); // Deploy the contract
-    await deAcc.waitForDeployment(); // Wait for deployment
-    console.log("DeAcc deployed to:", await deAcc.getAddress());
+    await deAcc.deployed(); // Wait for deployment
+    //console.log("DeAcc deployed to:", await deAcc.getAddress());
+    console.log("DeAcc deployed to:", deAcc.address);
 
     // Get IPFS hash from environment variable
     const ipfsHash = process.env.IPFS_HASH;

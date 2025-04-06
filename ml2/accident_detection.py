@@ -11,6 +11,7 @@ import requests
 import numpy as np
 from ultralytics import YOLO
 import sys
+import subprocess
 
 # Configure logging
 logging.basicConfig(
@@ -28,7 +29,7 @@ class CameraConfig:
         self.location = location
 
 class AccidentDetectionSystem:
-    def __init__(self, model_path='best.pt', confidence_threshold=0.5, dashboard_url=None):
+    def __init__(self, model_path='best.pt', confidence_threshold=0.5, dashboard_url=None, loop_video=False):
         """
         Initialize the accident detection system using YOLOv8 model
         
@@ -36,9 +37,11 @@ class AccidentDetectionSystem:
             model_path: Path to the YOLOv8 model file (.pt)
             confidence_threshold: Minimum confidence threshold for accident detection
             dashboard_url: URL of the frontend dashboard API
+            loop_video: Whether to loop videos in single video mode
         """
         self.model_path = model_path
         self.confidence_threshold = confidence_threshold
+        self.loop_video = loop_video
         
         # Convert localhost to proper IP for compatibility
         if dashboard_url:
@@ -76,16 +79,29 @@ class AccidentDetectionSystem:
     
     def save_snapshot(self, frame, camera_name, snapshot_dir='AccSnaps'):
         """Save a snapshot when an accident is detected"""
-        snapshot_dir = self.create_snapshot_dir(snapshot_dir)
+        # Create both directories
+        acc_snaps_dir = self.create_snapshot_dir(snapshot_dir)
+        snapshots_dir = self.create_snapshot_dir('snapshots')
+        
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{camera_name}_{timestamp}_{self.snapshot_counter}.jpg"
-        filepath = os.path.join(snapshot_dir, filename)
+        
+        # Save to AccSnaps directory
+        acc_snaps_filepath = os.path.join(acc_snaps_dir, filename)
+        # Save to snapshots directory
+        snapshots_filepath = os.path.join(snapshots_dir, filename)
         
         try:
-            cv2.imwrite(filepath, frame)
-            logger.info(f"Snapshot saved: {filepath}")
+            # Save to AccSnaps
+            cv2.imwrite(acc_snaps_filepath, frame)
+            logger.info(f"Snapshot saved to AccSnaps: {acc_snaps_filepath}")
+            
+            # Save to snapshots
+            cv2.imwrite(snapshots_filepath, frame)
+            logger.info(f"Snapshot saved to snapshots: {snapshots_filepath}")
+            
             self.snapshot_counter += 1
-            return filepath
+            return acc_snaps_filepath  # Return the original path for backward compatibility
         except Exception as e:
             logger.error(f"Failed to save snapshot: {str(e)}")
             return None
@@ -278,9 +294,9 @@ class AccidentDetectionSystem:
                     # Video has ended
                     logger.info(f"Video ended for camera: {camera_name}")
                     
-                    # If in single video mode, loop the video
-                    if is_single_video_mode:
-                        logger.info(f"Single video mode: Restarting video {video_path}")
+                    # If in single video mode and looping is enabled, loop the video
+                    if is_single_video_mode and self.loop_video:
+                        logger.info(f"Restarting video {video_path}")
                         cap.release()
                         cap = cv2.VideoCapture(video_path)
                         if not cap.isOpened():
@@ -288,7 +304,7 @@ class AccidentDetectionSystem:
                             break
                         continue
                     else:
-                        # Normal mode - don't loop
+                        # Don't loop
                         break
                 
                 frame_count += 1
@@ -490,6 +506,8 @@ def main():
     parser.add_argument('--single-video', type=str, help='Process only a single video file')
     parser.add_argument('--camera-name', type=str, help='Name for the camera when using single-video mode')
     parser.add_argument('--camera-location', type=str, help='Location for the camera when using single-video mode')
+    parser.add_argument('--loop-video', action='store_true', help='Loop the video in single video mode')
+    parser.add_argument('--run-upload', action='store_true', help='Run Upload3.py after processing')
     args = parser.parse_args()
     
     # Adjust dashboard URL for presentation mode if not explicitly provided
@@ -507,7 +525,8 @@ def main():
     detector = AccidentDetectionSystem(
         model_path=args.model,
         confidence_threshold=args.threshold,
-        dashboard_url=args.dashboard_url
+        dashboard_url=args.dashboard_url,
+        loop_video=args.loop_video
     )
     
     # Create snapshot directory
@@ -578,6 +597,18 @@ def main():
             logger.info(f"Processing single video: {camera_config.video_path}")
             detector.process_camera_feed(camera_config, display=args.display, snapshot_dir=args.snapshot_dir)
             logger.info(f"Finished processing video: {camera_config.video_path}")
+            
+            # After processing is complete, run Upload3.py if requested
+            if args.run_upload:
+                logger.info("Running Upload3.py to upload snapshots to IPFS and blockchain")
+                try:
+                    upload_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Upload3.py")
+                    subprocess.run([sys.executable, upload_script], check=True)
+                    logger.info("Upload3.py completed successfully")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Error running Upload3.py: {e}")
+                except Exception as e:
+                    logger.error(f"Unexpected error running Upload3.py: {e}")
         else:
             detector.start_monitoring(cameras, display=args.display, snapshot_dir=args.snapshot_dir)
     except KeyboardInterrupt:
