@@ -1,5 +1,3 @@
-
-
 /*
 const hre = require("hardhat");
 
@@ -26,13 +24,16 @@ runMain();
 */
 
 const hre = require("hardhat");
+const { saveContractAddress } = require("./track-contract");
 
 const main = async () => {
     const DeAcc = await hre.ethers.getContractFactory("DeAcc");
     const deAcc = await DeAcc.deploy(); // Deploy the contract
     await deAcc.deployed(); // Wait for deployment
-    //console.log("DeAcc deployed to:", await deAcc.getAddress());
     console.log("DeAcc deployed to:", deAcc.address);
+    
+    // Save the contract address for later use
+    saveContractAddress(deAcc.address);
 
     // Get IPFS hash from environment variable
     const ipfsHash = process.env.IPFS_HASH;
@@ -46,7 +47,7 @@ const main = async () => {
     const txn = await deAcc.addAccident("", "", "", ipfsHash, "");
     await txn.wait(); // Wait for transaction confirmation
 
-    //console.log("✅ IPFS Hash stored successfully:", ipfsHash);
+    console.log("✅ IPFS Hash stored successfully:", ipfsHash);
 };
 
 const runMain = async () => {
