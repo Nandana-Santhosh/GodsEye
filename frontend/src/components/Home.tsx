@@ -1,15 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
-import DeAcc from '../contracts/DeAcc.json';
 import { Link } from 'react-router-dom';
-
-const CONTRACT_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3';
-
-declare global {
-  interface Window {
-    ethereum?: any;
-  }
-}
 
 const Home: React.FC = () => {
   const [accidentCount, setAccidentCount] = useState<number>(0);
@@ -20,49 +10,44 @@ const Home: React.FC = () => {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    const loadContractData = async () => {
+    const fetchAccidentStats = async () => {
       try {
-        // Check if MetaMask is installed
-        if (!window.ethereum) {
-          // If we're in read-only mode (no MetaMask), use a provider that doesn't require signing
-          const provider = new ethers.providers.JsonRpcProvider('http://localhost:8545');
-          const contract = new ethers.Contract(CONTRACT_ADDRESS, DeAcc.abi, provider);
-          await fetchStats(contract);
-          return;
+        setLoading(true);
+        
+        // Fetch accident data from the backend API
+        const response = await fetch('/api/accidents');
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching accidents: ${response.status}`);
         }
-
-        // If MetaMask is available
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, DeAcc.abi, provider);
-        await fetchStats(contract);
-      } catch (error: any) {
-        console.error('Error loading contract data:', error);
+        
+        const accidents = await response.json();
+        
+        if (Array.isArray(accidents)) {
+          // Calculate statistics from accident data
+          const total = accidents.length;
+          const pending = accidents.filter(acc => acc.status === 'pending').length;
+          const approved = accidents.filter(acc => acc.status === 'resolved').length;
+          const rejected = accidents.filter(acc => acc.status === 'rejected').length;
+          
+          // Update state with the counts
+          setAccidentCount(total);
+          setPendingCount(pending);
+          setApprovedCount(approved);
+          setRejectedCount(rejected);
+          
+          console.log('Accident statistics:', { total, pending, approved, rejected });
+        }
+      } catch (error) {
+        console.error('Error fetching accident statistics:', error);
         setError('Failed to load accident statistics. Please try again later.');
+      } finally {
         setLoading(false);
       }
     };
 
-    loadContractData();
+    fetchAccidentStats();
   }, []);
-
-  const fetchStats = async (contract: ethers.Contract) => {
-    try {
-      const totalCount = await contract.accidentCount();
-      const pendingCount = await contract.pendingCount();
-      const approvedCount = await contract.approvedCount();
-      const rejectedCount = await contract.rejectedCount();
-
-      setAccidentCount(totalCount.toNumber());
-      setPendingCount(pendingCount.toNumber());
-      setApprovedCount(approvedCount.toNumber());
-      setRejectedCount(rejectedCount.toNumber());
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      setError('Failed to fetch accident statistics');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="max-w-4xl mx-auto p-4 my-8">
@@ -86,19 +71,27 @@ const Home: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-blue-50 rounded-lg p-4 text-center">
             <h3 className="text-lg font-semibold text-gray-700">Total Reports</h3>
-            <p className="text-3xl font-bold text-blue-600">{loading ? '...' : accidentCount}</p>
+            <p className="text-3xl font-bold text-blue-600">
+              {loading ? '...' : accidentCount}
+            </p>
           </div>
           <div className="bg-yellow-50 rounded-lg p-4 text-center">
             <h3 className="text-lg font-semibold text-gray-700">Pending</h3>
-            <p className="text-3xl font-bold text-yellow-600">{loading ? '...' : pendingCount}</p>
+            <p className="text-3xl font-bold text-yellow-600">
+              {loading ? '...' : pendingCount}
+            </p>
           </div>
           <div className="bg-green-50 rounded-lg p-4 text-center">
             <h3 className="text-lg font-semibold text-gray-700">Approved</h3>
-            <p className="text-3xl font-bold text-green-600">{loading ? '...' : approvedCount}</p>
+            <p className="text-3xl font-bold text-green-600">
+              {loading ? '...' : approvedCount}
+            </p>
           </div>
           <div className="bg-red-50 rounded-lg p-4 text-center">
             <h3 className="text-lg font-semibold text-gray-700">Rejected</h3>
-            <p className="text-3xl font-bold text-red-600">{loading ? '...' : rejectedCount}</p>
+            <p className="text-3xl font-bold text-red-600">
+              {loading ? '...' : rejectedCount}
+            </p>
           </div>
         </div>
 

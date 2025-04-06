@@ -8,6 +8,8 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import supabase, { accidentDB } from './supabase.js';
+import { uploadToIpfs, uploadBase64ToIpfs } from './ipfs.js';
+import { storeInBlockchain, isHardhatNodeRunning } from './blockchain.js';
 
 // Load environment variables
 dotenv.config({ path: './.env' });
@@ -792,30 +794,257 @@ app.patch('/api/accidents/:id/status', async (req, res) => {
       });
     }
     
-    // Update in-memory accident
+    // Get the current accident data to check if it's anonymous
+    let accidentData = null;
+    let isAnonymous = false;
+    
+    // Check in memory first
     const accidentIndex = accidents.findIndex(acc => acc.id === id);
     if (accidentIndex !== -1) {
-      accidents[accidentIndex].status = status;
-      
-      // Emit to all connected clients
-      io.emit('accident-updated', accidents[accidentIndex]);
+      accidentData = accidents[accidentIndex];
+      isAnonymous = accidentData.source === 'anonymous';
     }
     
-    // Update in database if available
-    if (supabase) {
-      const { data, error } = await accidentDB.updateAccident(id, { status });
-      
-      if (error) {
-        console.error(`Error updating accident ${id} status in database:`, error);
-      } else {
-        console.log(`Updated accident ${id} status to ${status} in database`);
+    // If not found in memory or if we need more details for IPFS, check database
+    if (!accidentData && supabase) {
+      const { data, error } = await accidentDB.getById(id);
+      if (!error && data) {
+        accidentData = data;
+        isAnonymous = accidentData.source === 'anonymous';
       }
+    }
+    
+    // Handle anonymous report rejection (delete from database)
+    if (isAnonymous && status === 'rejected') {
+      console.log(`Anonymous report ${id} rejected - deleting from database`);
+      
+      // Delete from database if available
+      if (supabase) {
+        const { error: deleteError } = await supabase
+          .from('accidents')
+          .delete()
+          .eq('id', id);
+        
+        if (deleteError) {
+          console.error(`Error deleting rejected anonymous report ${id}:`, deleteError);
+          return res.status(500).json({ 
+            success: false, 
+            message: 'Failed to delete rejected anonymous report'
+          });
+        }
+        
+        console.log(`Successfully deleted rejected anonymous report ${id} from database`);
+      }
+      
+      // Remove from in-memory storage
+      if (accidentIndex !== -1) {
+        accidents.splice(accidentIndex, 1);
+      }
+      
+      // Notify clients about the deletion
+      io.emit('accident-deleted', { id });
+      
+      return res.json({
+        success: true,
+        message: `Anonymous report ${id} rejected and deleted`,
+        accidentDeleted: true
+      });
+    }
+    
+    // Handle anonymous report approval (upload to IPFS and save hash)
+    if (isAnonymous && status === 'resolved') {
+      console.log(`Anonymous report ${id} approved - processing for IPFS and blockchain`);
+      
+      try {
+        // Attempt to upload image to IPFS if not already done
+        if (accidentData && accidentData.images && accidentData.images.length > 0 && !accidentData.pinata_hash) {
+          // Get the image path
+          const imagePath = accidentData.images[0];
+          console.log(`Processing approved anonymous report image for IPFS upload: ${imagePath}`);
+          
+          // Get the absolute path to the image - FIX: Use correct path joining for AccSnaps
+          // The issue is we need to join from the project root directory, not include 'AccSnaps' twice
+          const imageAbsPath = imagePath.startsWith('AccSnaps/') 
+            ? path.join(__dirname, '..', imagePath) // Path already includes AccSnaps
+            : path.join(__dirname, '..', 'ml2', 'AccSnaps', path.basename(imagePath)); // Just use filename
+          
+          console.log(`Looking for image at path: ${imageAbsPath}`);
+          
+          if (!fs.existsSync(imageAbsPath)) {
+            console.error(`⚠️ Image file not found at path: ${imageAbsPath}`);
+            console.log('Trying alternative path locations...');
+            
+            // Try alternative paths
+            const altPaths = [
+              path.join(__dirname, '..', 'ml2', imagePath), // Full path relative to ml2
+              path.join(__dirname, '..', imagePath), // Full path relative to project root
+              path.join(__dirname, '..', 'ml2', 'AccSnaps', imagePath) // Assuming AccSnaps is already in the path
+            ];
+            
+            let foundPath = null;
+            for (const tryPath of altPaths) {
+              console.log(`Trying path: ${tryPath}`);
+              if (fs.existsSync(tryPath)) {
+                foundPath = tryPath;
+                console.log(`✅ Found image at alternative path: ${foundPath}`);
+                break;
+              }
+            }
+            
+            if (!foundPath) {
+              // Still update the status but no IPFS upload
+              console.error('❌ Could not find image file in any location. Continuing without IPFS upload.');
+              if (supabase) {
+                const { data, error } = await accidentDB.updateAccident(id, { 
+                  status,
+                  updated_at: new Date().toISOString(),
+                  verified: true 
+                });
+                if (error) {
+                  console.error(`Error updating anonymous report ${id} status:`, error);
+                } else {
+                  console.log(`Updated anonymous report ${id} status to ${status} (no image found)`);
+                  accidentData = data;
+                }
+              }
+            } else {
+              // Use the found path for IPFS upload
+              console.log(`✅ Image file found, uploading to IPFS: ${foundPath}`);
+              const ipfsHash = await uploadToIpfs(foundPath);
+              processIpfsUploadResult(ipfsHash);
+            }
+          } else {
+            console.log(`✅ Image file found, uploading to IPFS: ${imageAbsPath}`);
+            const ipfsHash = await uploadToIpfs(imageAbsPath);
+            processIpfsUploadResult(ipfsHash);
+          }
+          
+          // Helper function to process IPFS result and update database
+          async function processIpfsUploadResult(ipfsHash) {
+            if (ipfsHash) {
+              console.log(`✅ Successfully uploaded to IPFS: ${ipfsHash}`);
+              
+              // Try to store in blockchain if it's running
+              const blockchainStored = await storeInBlockchain(ipfsHash);
+              if (blockchainStored) {
+                console.log(`✅ IPFS hash stored in blockchain: ${ipfsHash}`);
+              } else {
+                console.log(`⚠️ IPFS hash not stored in blockchain, but continuing with approval`);
+              }
+              
+              // Update with the IPFS hash and status
+              if (supabase) {
+                const updateData = {
+                  status,
+                  pinata_hash: ipfsHash,
+                  ipfs_hashes: [ipfsHash],
+                  updated_at: new Date().toISOString(),
+                  verified: true // Add a verified flag
+                };
+                
+                console.log(`Updating database with IPFS hash and resolved status: ${JSON.stringify(updateData)}`);
+                const { data, error } = await accidentDB.updateAccident(id, updateData);
+                
+                if (error) {
+                  console.error(`Error updating anonymous report ${id} with IPFS hash:`, error);
+                } else {
+                  console.log(`Successfully updated anonymous report ${id} with IPFS hash: ${ipfsHash}`);
+                  accidentData = data; // Update the accident data for the response
+                }
+              }
+            } else {
+              console.error(`Failed to upload image to IPFS`);
+              // Just update the status without IPFS hash
+              if (supabase) {
+                const { data, error } = await accidentDB.updateAccident(id, { 
+                  status, 
+                  updated_at: new Date().toISOString(),
+                  verified: true 
+                });
+                
+                if (error) {
+                  console.error(`Error updating anonymous report ${id} status:`, error);
+                } else {
+                  console.log(`Updated anonymous report ${id} status to ${status} without IPFS hash`);
+                  accidentData = data; // Update the accident data for the response
+                }
+              }
+            }
+          }
+        } else {
+          // Just update the status (already has hash or no image)
+          if (supabase) {
+            const updateData = { 
+              status, 
+              updated_at: new Date().toISOString(),
+              verified: true 
+            };
+            
+            console.log(`Updating anonymous report status to ${status}: ${JSON.stringify(updateData)}`);
+            const { data, error } = await accidentDB.updateAccident(id, updateData);
+            
+            if (error) {
+              console.error(`Error updating anonymous report ${id} status:`, error);
+            } else {
+              console.log(`Successfully updated anonymous report ${id} status to ${status}`);
+              accidentData = data; // Update the accident data for the response
+            }
+          }
+        }
+        
+        // Log IPFS status for the approved report
+        if (accidentData && accidentData.pinata_hash) {
+          console.log(`Approved report has IPFS hash: ${accidentData.pinata_hash}`);
+          if (accidentData.ipfs_hashes && accidentData.ipfs_hashes.length > 0) {
+            console.log(`Approved report has ${accidentData.ipfs_hashes.length} IPFS hashes`);
+          }
+        } else {
+          console.log(`Approved report does not have IPFS hash yet`);
+        }
+      } catch (ipfsError) {
+        console.error(`Error processing IPFS for anonymous report ${id}:`, ipfsError);
+        // Continue with just the status update
+        if (supabase) {
+          const { data, error } = await accidentDB.updateAccident(id, { 
+            status,
+            updated_at: new Date().toISOString(),
+            verified: true
+          });
+          if (!error) {
+            accidentData = data;
+          }
+        }
+      }
+    } else {
+      // Regular status update (not special case)
+      // Update in-memory accident
+      if (accidentIndex !== -1) {
+        accidents[accidentIndex].status = status;
+        accidentData = accidents[accidentIndex];
+      }
+      
+      // Update in database if available
+      if (supabase) {
+        const { data, error } = await accidentDB.updateAccident(id, { status });
+        
+        if (error) {
+          console.error(`Error updating accident ${id} status in database:`, error);
+        } else {
+          console.log(`Updated accident ${id} status to ${status} in database`);
+          accidentData = data; // Update the accident data for the response
+        }
+      }
+    }
+    
+    // Emit update to all connected clients
+    if (accidentData) {
+      io.emit('accident-updated', accidentData);
     }
     
     res.json({ 
       success: true, 
       message: `Accident status updated to ${status}`,
-      accident: accidentIndex !== -1 ? accidents[accidentIndex] : null
+      accident: accidentData
     });
   } catch (error) {
     console.error('Error updating accident status:', error);
@@ -1023,24 +1252,38 @@ app.post('/api/anonymous-report', async (req, res) => {
     
     // Create a new accident ID
     const accidentId = `anon_${Date.now()}`;
+    console.log(`Processing new anonymous report ${accidentId}`);
     
     // Handle the image (base64 encoded)
     let imagePath = null;
+    
     if (image && image.startsWith('data:image')) {
-      // Extract the base64 content
-      const base64Data = image.split(';base64,').pop();
-      
-      // Create a filename and path
-      const fileName = `anonymous_report_${accidentId}.jpg`;
-      const savePath = path.join(__dirname, '..', 'ml2', 'AccSnaps', fileName);
-      
-      // Save the image to disk
-      fs.writeFileSync(savePath, base64Data, { encoding: 'base64' });
-      
-      // Use the relative path for the database
-      imagePath = `AccSnaps/${fileName}`;
-      
-      console.log(`Saved anonymous report image to ${imagePath}`);
+      try {
+        // Extract the base64 content
+        const base64Data = image.split(';base64,').pop();
+        
+        // Create a filename and path
+        const fileName = `anonymous_report_${accidentId}.jpg`;
+        const savePath = path.join(__dirname, '..', 'ml2', 'AccSnaps', fileName);
+        
+        // Ensure the directory exists
+        const saveDir = path.join(__dirname, '..', 'ml2', 'AccSnaps');
+        if (!fs.existsSync(saveDir)) {
+          fs.mkdirSync(saveDir, { recursive: true });
+        }
+        
+        // Save the image to disk
+        fs.writeFileSync(savePath, base64Data, { encoding: 'base64' });
+        
+        // Use the relative path for the database
+        imagePath = `AccSnaps/${fileName}`;
+        
+        console.log(`Saved anonymous report image to ${imagePath}`);
+        // Note: We'll only upload to IPFS when the report is approved
+      } catch (imageError) {
+        console.error('Error processing image:', imageError);
+        // Continue without the image
+      }
     }
     
     // Create the accident object

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X, Ambulance, Flame, Hash, ExternalLink } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, AlertTriangle, Maximize, X, Ambulance, Flame, Hash, ExternalLink, Check } from 'lucide-react';
 import { Accident } from '../types';
 import { toast } from 'react-hot-toast';
 
@@ -363,32 +363,55 @@ const AccidentList: React.FC<AccidentListProps> = ({
                 </button>
                 
                 {/* Show appropriate action buttons based on status */}
-                {accident.status === 'pending' && onAcknowledge && (
-                  <button 
-                    onClick={() => onAcknowledge(accident.id)}
-                    className="px-3 py-1 bg-orange-100 text-orange-700 rounded-md text-sm font-medium hover:bg-orange-200"
-                  >
-                    Acknowledge
-                  </button>
-                )}
-                
-                {(accident.status === 'pending' || accident.status === 'acknowledged') && onResolve && (
-                  <button 
-                    onClick={() => onResolve(accident.id)}
-                    className="px-3 py-1 bg-green-100 text-green-700 rounded-md text-sm font-medium hover:bg-green-200"
-                  >
-                    Resolve
-                  </button>
-                )}
-                
-                {/* Add reject button for anonymous reports */}
-                {accident.status === 'pending' && accident.source === 'anonymous' && onReject && (
-                  <button 
-                    onClick={() => onReject(accident.id)}
-                    className="px-3 py-1 bg-red-100 text-red-700 rounded-md text-sm font-medium hover:bg-red-200"
-                  >
-                    Reject
-                  </button>
+                {/* For anonymous reports, only show Approve/Reject options */}
+                {accident.source === 'anonymous' ? (
+                  <>
+                    {/* For anonymous reports in pending status, show Approve/Reject */}
+                    {accident.status === 'pending' && (
+                      <>
+                        {onResolve && (
+                          <button 
+                            onClick={() => onResolve(accident.id)}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded-md text-sm font-medium hover:bg-green-200 flex items-center"
+                          >
+                            <Check size={14} className="mr-1" />
+                            Approve
+                          </button>
+                        )}
+                        
+                        {onReject && (
+                          <button 
+                            onClick={() => onReject(accident.id)}
+                            className="px-3 py-1 bg-red-100 text-red-700 rounded-md text-sm font-medium hover:bg-red-200 flex items-center"
+                          >
+                            <X size={14} className="mr-1" />
+                            Reject
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* For normal camera-detected accidents */}
+                    {accident.status === 'pending' && onAcknowledge && (
+                      <button 
+                        onClick={() => onAcknowledge(accident.id)}
+                        className="px-3 py-1 bg-orange-100 text-orange-700 rounded-md text-sm font-medium hover:bg-orange-200"
+                      >
+                        Acknowledge
+                      </button>
+                    )}
+                    
+                    {(accident.status === 'pending' || accident.status === 'acknowledged') && onResolve && (
+                      <button 
+                        onClick={() => onResolve(accident.id)}
+                        className="px-3 py-1 bg-green-100 text-green-700 rounded-md text-sm font-medium hover:bg-green-200"
+                      >
+                        Resolve
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

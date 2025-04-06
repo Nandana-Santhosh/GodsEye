@@ -1,55 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Bell, Camera, FileCheck, MapPin } from 'lucide-react';
-import { Statistics as StatsType, Accident } from '../types';
+import { BarChart3, Bell, Camera, FileCheck, MapPin, AlertTriangle, BarChart2, UserCheck } from 'lucide-react';
+import { Accident } from '../types';
 import AccidentList from './AccidentList';
-import StatisticsComponent from './Statistics';
-import NotificationPanel from './NotificationPanel';
+import Statistics from './Statistics';
 import CameraGrid from './CameraGrid';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import notificationService from '../services/AccidentNotificationService';
 import { toast } from 'react-hot-toast';
-import { accidentDB } from '../services/supabase';
-
-// Mock data for testing without blockchain
-const MOCK_ACCIDENTS = [
-  {
-    id: '1',
-    location: { lat: 37.7749, lng: -122.4194, address: 'San Francisco, CA' },
-    description: 'Vehicle collision near intersection',
-    images: ['AccSnaps/sample1.jpg'],
-    timestamp: new Date().toISOString(),
-    status: 'pending',
-    source: 'camera'
-  },
-  {
-    id: '2',
-    location: { lat: 37.3352, lng: -121.8811, address: 'San Jose, CA' },
-    description: 'Multi-car accident on highway',
-    images: ['AccSnaps/sample2.jpg'],
-    timestamp: new Date(Date.now() - 3600000).toISOString(),
-    status: 'acknowledged',
-    source: 'camera'
-  }
-];
-
-// Mock statistics for testing
-const MOCK_STATS: StatsType = {
-  total: 24,
-  verified: 18,
-  pending: 4,
-  rejected: 2,
-  byLocation: {
-    'San Francisco': 8,
-    'Oakland': 6,
-    'San Jose': 10
-  },
-  byTimeOfDay: {
-    'Morning': 5,
-    'Afternoon': 8,
-    'Evening': 7,
-    'Night': 4
-  }
-};
+import { Loader } from 'lucide-react';
+import { AlertOctagon } from 'lucide-react';
 
 interface TabSwitchProps {
   activeTab: string;
@@ -78,17 +37,7 @@ const AdminDashboard: React.FC = () => {
   const [localReports, setLocalReports] = useState<Accident[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
-  const [statsData, setStatsData] = useState<StatsType>(MOCK_STATS);
   const navigate = useNavigate();
-
-  // Check authentication on load (simplified for testing)
-  useEffect(() => {
-    const checkAuth = () => {
-      // For testing, we'll skip authentication
-      console.log("Authentication check skipped for testing");
-    };
-    checkAuth();
-  }, [navigate]);
 
   // Load accidents from server
   const loadAccidents = async () => {
@@ -101,9 +50,9 @@ const AdminDashboard: React.FC = () => {
       }
       
       const accidents = await response.json();
-      console.log("Accidents loaded from server:", accidents);
+      console.log("Accidents loaded from server:", accidents.length, "accidents");
       
-      if (Array.isArray(accidents) && accidents.length > 0) {
+      if (Array.isArray(accidents)) {
         setLocalReports(accidents);
       }
     } catch (error) {
@@ -121,61 +70,63 @@ const AdminDashboard: React.FC = () => {
       console.log("Connecting to notification service");
       notificationService.connect();
       
-      // Listen for new accidents from the ML system and add them to local reports
+      // Listen for new accidents from the ML system
       notificationService.on('new-accident', (accident: Accident) => {
         console.log("New accident notification received:", accident);
-        
-        // Update local state
-        setLocalReports(prev => {
-          // Check if this accident already exists by ID
-          const exists = prev.some(a => a.id === accident.id);
-          if (exists) {
-            return prev.map(a => a.id === accident.id ? accident : a);
-          } else {
-            return [accident, ...prev];
-          }
-        });
         
         // Show a toast notification
         toast.success(`New accident detected at ${accident.location.address}`, {
           duration: 5000,
           position: 'top-right'
         });
+        
+        // Reload all accidents to ensure we have the latest data
+        loadAccidents();
       });
       
       // Listen for updated accidents
       notificationService.on('accident-updated', (accident: Accident) => {
         console.log("Accident update received:", accident);
         
-        setLocalReports(prev => {
-          // Replace the accident with the updated version
-          return prev.map(a => a.id === accident.id ? accident : a);
+        toast.info(`Accident at ${accident.location.address} has been updated`, {
+          duration: 3000,
+          position: 'top-right'
         });
         
-        toast.info(`Accident at ${accident.location.address} has been updated`, {
+        // Reload all accidents to ensure we have the latest data
+        loadAccidents();
+      });
+      
+      // Listen for deleted accidents
+      notificationService.on('accident-deleted', (data: { id: string }) => {
+        console.log("Accident deletion notification received:", data.id);
+        
+        // Remove the accident from local state
+        setLocalReports(prev => prev.filter(a => a.id !== data.id));
+        
+        toast.info(`An accident report has been deleted`, {
           duration: 3000,
           position: 'top-right'
         });
       });
       
-      // Handle accident history
-      notificationService.on('accident-history', (accidents: Accident[]) => {
-        console.log("Received accident history:", accidents);
-        if (accidents && accidents.length > 0) {
-          setLocalReports(accidents);
-        }
-      });
-      
       // Initial data load
       loadAccidents();
       
+      // Set up polling for regular updates
+      const intervalId = setInterval(() => {
+        console.log("Polling for accident updates...");
+        loadAccidents();
+      }, 30000); // Update every 30 seconds
+      
       // Clean up on component unmount
       return () => {
-        console.log("Cleaning up notification service");
+        console.log("Cleaning up notification service and polling");
         notificationService.off('new-accident');
         notificationService.off('accident-updated');
-        notificationService.off('accident-history');
+        notificationService.off('accident-deleted');
         notificationService.disconnect();
+        clearInterval(intervalId);
       };
     } catch (error) {
       console.error("Error setting up notification service:", error);
@@ -183,32 +134,18 @@ const AdminDashboard: React.FC = () => {
       
       // Still try to load accidents even if notification service fails
       loadAccidents();
+      
+      // Still set up polling if socket fails
+      const intervalId = setInterval(() => {
+        console.log("Polling for accident updates (fallback)...");
+        loadAccidents();
+      }, 30000);
+      
+      return () => {
+        clearInterval(intervalId);
+      };
     }
   }, []);
-
-  // Load statistics
-  const loadStatistics = async () => {
-    try {
-      // For now, using mock stats
-      setStatsData(MOCK_STATS);
-      
-      // TODO: implement real statistics from the database
-      // const response = await fetch('/api/statistics');
-      // if (response.ok) {
-      //   const stats = await response.json();
-      //   setStatsData(stats);
-      // }
-    } catch (error) {
-      console.error("Error loading statistics:", error);
-    }
-  };
-
-  // Handle tab changes
-  useEffect(() => {
-      if (activeTab === 'statistics') {
-      loadStatistics();
-    }
-  }, [activeTab]);
 
   // Handler for acknowledging accidents
   const handleAccidentAction = async (accidentId: string, action: 'acknowledge' | 'resolve' | 'reject') => {
@@ -247,31 +184,29 @@ const AdminDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-        </div>
+    <div className="p-6 max-w-6xl mx-auto">
+      <header className="mb-8">
+        <h1 className="text-2xl font-semibold text-gray-800">Admin Dashboard</h1>
+        <p className="text-gray-600">
+          Manage accident reports, dispatch emergency services, and view statistics
+        </p>
       </header>
-
-      <NotificationPanel />
-
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        {/* Tab navigation */}
-        <div className="mb-6 bg-white rounded-lg shadow p-2 flex space-x-2">
+      
+      <div className="bg-white rounded-lg shadow-md">
+        <div className="p-4 border-b flex space-x-2">
           <TabSwitch
             activeTab={activeTab}
             tabName="accidents"
-            icon={<Camera />}
+            icon={<AlertTriangle size={18} />}
             label="Accident Reports"
-              onClick={() => setActiveTab('accidents')}
+            onClick={() => setActiveTab('accidents')}
           />
           <TabSwitch
             activeTab={activeTab}
             tabName="statistics"
-            icon={<BarChart3 />}
+            icon={<BarChart2 size={18} />}
             label="Statistics"
-              onClick={() => setActiveTab('statistics')}
+            onClick={() => setActiveTab('statistics')}
           />
           <TabSwitch
             activeTab={activeTab}
@@ -281,47 +216,63 @@ const AdminDashboard: React.FC = () => {
             onClick={() => setActiveTab('cameras')}
           />
         </div>
-
-        {/* Error message */}
-        {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
-            <div className="flex">
-              <div className="ml-3">
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
+        
+        <div className="p-4">
+          {loading && activeTab === 'accidents' ? (
+            <div className="py-20 text-center">
+              <Loader className="animate-spin w-12 h-12 text-blue-500 mx-auto mb-4" />
+              <p className="text-gray-500">Loading dashboard data...</p>
             </div>
-          </div>
-        )}
-        
-        {/* Loading indicator */}
-        {loading && (
-          <div className="text-center py-10">
-            <div className="spinner"></div>
-            <p className="mt-2 text-gray-600">Loading data...</p>
-          </div>
-        )}
-        
-        {/* Content based on active tab */}
-        {!loading && activeTab === 'accidents' && (
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">Recent Accidents</h2>
-            <AccidentList 
-              accidents={localReports} 
-              onAcknowledge={(id) => handleAccidentAction(id, 'acknowledge')}
-              onResolve={(id) => handleAccidentAction(id, 'resolve')}
-              onReject={(id) => handleAccidentAction(id, 'reject')}
-            />
-          </div>
-        )}
-
-        {activeTab === 'statistics' && (
-          <StatisticsComponent data={statsData} />
-        )}
-
-        {activeTab === 'cameras' && (
-          <CameraGrid gridSize={4} />
-        )}
-      </main>
+          ) : error && activeTab === 'accidents' ? (
+            <div className="py-20 text-center">
+              <AlertOctagon className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <p className="text-gray-500">{error}</p>
+              <button 
+                onClick={loadAccidents}
+                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Try Again
+              </button>
+            </div>
+          ) : activeTab === 'accidents' ? (
+            <div>
+              {/* Group accidents by source */}
+              {localReports.some(acc => acc.source === 'anonymous' && acc.status === 'pending') && (
+                <>
+                  <h2 className="text-lg font-semibold mb-3 flex items-center text-amber-700">
+                    <UserCheck className="mr-2" size={20} />
+                    Anonymous Reports Pending Verification
+                  </h2>
+                  <div className="mb-6">
+                    <AccidentList 
+                      accidents={localReports.filter(acc => acc.source === 'anonymous' && acc.status === 'pending')}
+                      onAcknowledge={(id) => handleAccidentAction(id, 'acknowledge')}
+                      onResolve={(id) => handleAccidentAction(id, 'resolve')}
+                      onReject={(id) => handleAccidentAction(id, 'reject')}
+                    />
+                  </div>
+                </>
+              )}
+              
+              {/* Display camera-detected accidents */}
+              <h2 className="text-lg font-semibold mb-3 flex items-center">
+                <Camera className="mr-2" size={20} />
+                Camera-Detected Accidents
+              </h2>
+              <AccidentList 
+                accidents={localReports.filter(acc => acc.source === 'camera' || acc.status !== 'pending')}
+                onAcknowledge={(id) => handleAccidentAction(id, 'acknowledge')}
+                onResolve={(id) => handleAccidentAction(id, 'resolve')}
+                onReject={(id) => handleAccidentAction(id, 'reject')}
+              />
+            </div>
+          ) : activeTab === 'statistics' ? (
+            <Statistics />
+          ) : (
+            <CameraGrid />
+          )}
+        </div>
+      </div>
     </div>
   );
 };
